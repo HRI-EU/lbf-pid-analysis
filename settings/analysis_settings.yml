@@ -1,0 +1,6 @@
+# Settings file to run analysis of LBF data
+seed: 741  # set to None for random initialization
+nperm: 500
+alpha: 0.5
+sources: 'actions'  #  'closest_distance'
+source_encoding: 'binary'
