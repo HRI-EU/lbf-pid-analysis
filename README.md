@@ -23,7 +23,7 @@ between agents' actions and the amount of food items collected.
 # Getting Started
 
 Scripts can be run within the `lbf_pid_analysis` subfolder. To replicate analyses
-shown in the paper, run `get_paper_results.sh`.
+shown in the paper, run `get_paper_results.sh` and `plot_paper_figures.sh`.
 
 Running analyses presented in this repository assumes game data generated with HRI-EU's
 fork of the LBF environment: [https://github.com/HRI-EU/lb-foraging](https://github.com/HRI-EU/lb-foraging).

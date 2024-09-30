@@ -22,6 +22,7 @@ sqOptInRules = ["GEN12", "GEN14", "PY01", "PY03", "DOC04"]
 
 sqOptOutRules = [
     "DOC03",  # there is a shell script running the analysis, this is documented in the README, I could not get this to run when moving the shell script to an 'examples' folder
+    "C10",  # no compatible Klockwork installation
 ]
 
 copyright = [

@@ -45,6 +45,18 @@ syndisc_lattice = {  # opposed to the other lattices, this is a syn not a red/sh
     "syn": ((0,), (1,)),
 }
 colors = {
+    "red_muted": "#af363c",
+    "red_muted_lighter_1": "#cf868a",
+    "red_muted_lighter_2": "#e7c2c4",
+    "blue_muted": "#003653",
+    "blue_muted_lighter_1": "#668697",
+    "blue_muted_lighter_2": "#99aeba",
+    "green_muted": "#246920",
+    "green_muted_lighter_1": "#659662",
+    "green_muted_lighter_2": "#a7c3a5",
+    "grey_muted": "#3F5661",
+    "grey_muted_lighter_1": "#8b99a0",
+    "grey_muted_lighter_2": "#c5cccf",
     "red": "#DB444B",
     "blue": "#006BA2",
     "cyan": "#3EBCD2",
@@ -87,12 +99,19 @@ col_t_label = "t_label"
 col_lmi_s1_t = "i(s1;t)"
 col_lmi_s2_t = "i(s2;t)"
 col_lmi_s1_s2_t = "i(s1,s2;t)"
+col_mi = "mi"
+col_syn = "syn"
 col_shd = "shd"
 col_unq_s1 = "unq_s1"
 col_unq_s2 = "unq_s2"
-col_syn = "syn"
+col_coinfo = "coinfo"
+col_coop_ratio = "coop_ratio"
 col_syn_norm = "syn_norm"
-col_mi = "mi"
+col_shd_norm = "shd_norm"
+col_unq_s1_norm = "unq_s1_norm"
+col_unq_s2_norm = "unq_s2_norm"
+col_coinfo_norm = "coinfo_norm"
+col_coop_ratio_norm = "coop_ratio_norm"
 
 # Comparisons performed for the estimated quantities
 statistical_tests = {
@@ -143,6 +162,7 @@ plot_elements = {
 }
 
 labels = {  # x- and y-axis labels for plots
+    # Heuristics
     "MH_BASELINE": "BL",
     "MH_EGOISTIC": "Ego",  # former H1
     "MH_SOCIAL1": "Social",  # former H2
@@ -151,59 +171,155 @@ labels = {  # x- and y-axis labels for plots
     "MH_ADAPTIVE": "Adapt",  # value function, coop or egoistic
     "MH_COMPETITIVE_EGOISTIC": "COMP_EGO",
     "MH_COMPETITIVE_OPPORTUNISTIC": "COMP_OPP",
-    "syn_sx": "$I_{syn}^{SxPID}(G;A_0,A_1)$",
-    "syn_norm_sx": "$I_{syn}^{SxPID}(G;A_0,A_1)/I(G; A_0,A_1)$",
-    "shd_sx": "$I_{shd}^{SxPID}(G;A_0,A_1)$",
-    "unq1_sx": "$I_{unq}^{SxPID}(G;A_0)$",
-    "unq1_norm_sx": "$I_{unq}^{SxPID}(G;A_0)/I(G; A_0,A_1)$",
-    "unq2_sx": "$I_{unq}^{SxPID}(G;A_1)$",
-    "unq2_norm_sx": "$I_{unq}^{SxPID}(G;A_1)/I(G; A_0,A_1)$",
-    "mi_sx": "$I^{SxPID}(G;A_0,A_1)$",
-    "mi_norm_sx": "$I^{SxPID}(G;A_0,A_1)/H(G)$",
-    "syn_sx_cor": "$I_{syn}^{SxPID}(G;A_0,A_1)$",
-    "syn_norm_sx_cor": "$I_{syn}^{SxPID}(G;A_0,A_1)/I(G; A_0,A_1)$",
-    "shd_sx_cor": "$I_{shd}^{SxPID}(G;A_0,A_1)$",
-    "unq1_sx_cor": "$I_{unq}^{SxPID}(G;A_0)$",
-    "unq1_norm_sx_cor": "$I_{unq}^{SxPID}(G;A_0)/I(G; A_0,A_1)$",
-    "unq2_sx_cor": "$I_{unq}^{SxPID}(G;A_1)$",
-    "unq2_norm_sx_cor": "$I_{unq}^{SxPID}(G;A_1)/I(G; A_0,A_1)$",
-    "mi_sx_cor": "$I^{SxPID}(G;A_0,A_1)$",
-    "mi_norm_sx_cor": "$I^{SxPID}(G;A_0,A_1)/H(G)$",
-    "syn_syndisc": "$I_{syn}^{SD}(G;A_0,A_1)$",
-    "syn_norm_syndisc": "$I_{syn}^{SD}(G;A_0,A_1)/I(G; A_0,A_1)$",
-    "shd_syndisc": "$I_{shd}^{SD}(G;A_0,A_1)$",
-    "unq1_syndisc": "$I_{unq}^{SD}(G;A_0)$",
-    "unq1_norm_syndisc": "$I_{unq}^{SD}(G;A_0)/I(G; A_0,A_1)$",
-    "unq2_syndisc": "$I_{unq}^{SD}(G;A_1)$",
-    "unq2_norm_syndisc": "$I_{unq}^{SD}(G;A_1)/I(G; A_0,A_1)$",
-    "mi_syndisc": "$I^{SD}(G;A_0,A_1)$",
-    "mi_norm_syndisc": "$I^{SD}(G;A_0,A_1)/H(G)$",
-    "syn_iccs": "$I_{syn}^{CCS}(G;A_0,A_1)$",
-    "syn_norm_iccs": "$I_{syn}^{CCS}(G;A_0,A_1)/I(G; A_0,A_1)$",
-    "shd_iccs": "$I_{shd}^{CCS}(G;A_0,A_1)$",
-    "unq1_iccs": "$I_{unq}^{CCS}(G;A_0)$",
-    "unq1_norm_iccs": "$I_{unq}^{CCS}(G;A_0)/I(G; A_0,A_1)$",
-    "unq2_iccs": "$I_{unq}^{CCS}(G;A_1)$",
-    "unq2_norm_iccs": "$I_{unq}^{CCS}(G;A_1)/I(G; A_0,A_1)$",
-    "mi_iccs": "$I^{CCS}(G;A_0,A_1)$",
-    "mi_norm_iccs": "$I^{CCS}(G;A_0,A_1)/H(G)$",
-    "unq_own_norm_sx_cor": "$I_{unq}^{SxPID}(G^{A_i};A_i)/I(G; A_0,A_1)$",
-    "unq_other_norm_sx_cor": "$I_{unq}^{SxPID}(G^{A_i};A_j)/I(G; A_0,A_1)$",
-    "total_food_value_collected": "$F$",
+    # Target variables
     "mean_food_value_collected": "sum. mean value collected",
+    "total_food_value_collected": "$F$",
     "n_collections": "N collections",
-    "n_collections_agent_0": "N collections $A_0$",
-    "n_collections_agent_1": "N collections $A_1$",
+    "n_collections_agent_0": "$G_{A_0}$",  # "N collections $A_0$",
+    "n_collections_agent_1": "$G_{A_1}$",  # "N collections $A_1$",
     "food_value_collected_agent_0": "$F_{A_0}$",
     "food_value_collected_agent_1": "$F_{A_1}$",
-    "any_food_collected": "any food collected",
+    "any_food_collected": "$G$",  # "any food collected",
     "any_food": "# collected",
     "food_type": "food type collected",
     "frac_cooperative_actions": "% joint actions",
     "n_cooperative_actions": "$J$",
+    "p_joint_action": "$p(A_0=1,A_1=1,G=1)$",
+    "local_shd_joint_action": "$p*i_{shd}(G=1;A_0=1,A_1=1)$",
+    "p_indiv1_action": "$p(A_0=1,A_1=0,G=1)$",
+    "local_unq1_indiv_action": "$p*i_{unq1}(G=1;A_0=1,A_1=0)$",
+    # Info-theoretic measures
     "h": "$H(F)$",
     "mi_sources": "$I(A_0;A_1)$",
     "mi": "$I(G;A_0,A_1)$",
+    "source_corr": "$r(A_0,A_1)$",
     "cmi_01": "$I(A_0;F|A_1)$",
     "cmi_10": "$I(A_1;F|A_0)$",
+    "unq_own_norm_sx_cor": "$I_{unq}^{SxPID}(G^{A_i};A_i)/I(G; A_0,A_1)$",
+    "unq_other_norm_sx_cor": "$I_{unq}^{SxPID}(G^{A_i};A_j)/I(G; A_0,A_1)$",
+    # # PID measures
+    # "coinfo_sx": "$coI^{SxPID}(G;A_0,A_1)$",
+    # "coinfo_norm_sx": "$coI^{SxPID}(G;A_0,A_1)/I(G;A_0,A_1)$",
+    # "coop_ratio_sx": "$I^{SxPID}_{shd}(G;A_0,A_1)/I^{SxPID}_{syn}(G;A_0,A_1)$",
+    # "coop_ratio_norm_sx": "$(I^{SxPID}_{shd}(G;A_0,A_1)/I^{SxPID}_{syn}(G;A_0,A_1))/I$",
+    # "coinfo_broja": "$coI^{BROJA}(G;A_0,A_1)$",
+    # "coinfo_norm_broja": "$coI^{BROJA}(G;A_0,A_1)$",
+    # "coop_ratio_broja": "$I^{BROJA}_{shd}(G;A_0,A_1)/I^{BROJA}_{syn}(G;A_0,A_1)$",
+    # "coop_ratio_norm_broja": "$(I^{BROJA}_{shd}(G;A_0,A_1)/I^{BROJA}_{syn}(G;A_0,A_1))/I$",
+    # "syn_sx": "$I_{syn}^{SxPID}(G;A_0,A_1)$",
+    # "syn_norm_sx": "$I_{syn}^{SxPID}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "shd_sx": "$I_{shd}^{SxPID}(G;A_0,A_1)$",
+    # "shd_norm_sx": "$I_{shd}^{SxPID}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "unq1_sx": "$I_{unq}^{SxPID}(G;A_0)$",
+    # "unq1_norm_sx": "$I_{unq}^{SxPID}(G;A_0)/I(G; A_0,A_1)$",
+    # "unq2_sx": "$I_{unq}^{SxPID}(G;A_1)$",
+    # "unq2_norm_sx": "$I_{unq}^{SxPID}(G;A_1)/I(G; A_0,A_1)$",
+    # "mi_sx": "$I^{SxPID}(G;A_0,A_1)$",
+    # "mi_norm_sx": "$I^{SxPID}(G;A_0,A_1)/H(G)$",
+    # "coinfo_sx_cor": "$coI^{SxPID}(G;A_0,A_1)$",
+    # "coinfo_norm_sx_cor": "$coI^{SxPID}(G;A_0,A_1)/I(G;A_0,A_1)$",
+    # "coop_ratio_sx_cor": "$I^{SxPID}_{shd}(G;A_0,A_1)/I^{SxPID}_{syn}(G;A_0,A_1)$",
+    # "coop_ratio_norm_sx_cor": "$(I^{SxPID}_{shd}(G;A_0,A_1)/I^{SxPID}_{syn}(G;A_0,A_1))/I$",
+    # "syn_sx_cor": "$I_{syn}^{SxPID}(G;A_0,A_1)$",
+    # "syn_norm_sx_cor": "$I_{syn}^{SxPID}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "shd_sx_cor": "$I_{shd}^{SxPID}(G;A_0,A_1)$",
+    # "shd_norm_sx_cor": "$I_{shd}^{SxPID}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "unq1_sx_cor": "$I_{unq}^{SxPID}(G;A_0)$",
+    # "unq1_norm_sx_cor": "$I_{unq}^{SxPID}(G;A_0)/I(G; A_0,A_1)$",
+    # "unq2_sx_cor": "$I_{unq}^{SxPID}(G;A_1)$",
+    # "unq2_norm_sx_cor": "$I_{unq}^{SxPID}(G;A_1)/I(G; A_0,A_1)$",
+    # "mi_sx_cor": "$I^{SxPID}(G;A_0,A_1)$",
+    # "mi_norm_sx_cor": "$I^{SxPID}(G;A_0,A_1)/H(G)$",
+    # "syn_syndisc": "$I_{syn}^{SD}(G;A_0,A_1)$",
+    # "syn_norm_syndisc": "$I_{syn}^{SD}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "shd_syndisc": "$I_{shd}^{SD}(G;A_0,A_1)$",
+    # "shd_norm_syndisc": "$I_{shd}^{SD}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "unq1_syndisc": "$I_{unq}^{SD}(G;A_0)$",
+    # "unq1_norm_syndisc": "$I_{unq}^{SD}(G;A_0)/I(G; A_0,A_1)$",
+    # "unq2_syndisc": "$I_{unq}^{SD}(G;A_1)$",
+    # "unq2_norm_syndisc": "$I_{unq}^{SD}(G;A_1)/I(G; A_0,A_1)$",
+    # "mi_syndisc": "$I^{SD}(G;A_0,A_1)$",
+    # "mi_norm_syndisc": "$I^{SD}(G;A_0,A_1)/H(G)$",
+    # "syn_iccs": "$I_{syn}^{CCS}(G;A_0,A_1)$",
+    # "syn_norm_iccs": "$I_{syn}^{CCS}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "shd_iccs": "$I_{shd}^{CCS}(G;A_0,A_1)$",
+    # "shd_norm_iccs": "$I_{shd}^{CCS}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "unq1_iccs": "$I_{unq}^{CCS}(G;A_0)$",
+    # "unq1_norm_iccs": "$I_{unq}^{CCS}(G;A_0)/I(G; A_0,A_1)$",
+    # "unq2_iccs": "$I_{unq}^{CCS}(G;A_1)$",
+    # "unq2_norm_iccs": "$I_{unq}^{CCS}(G;A_1)/I(G; A_0,A_1)$",
+    # "mi_iccs": "$I^{CCS}(G;A_0,A_1)$",
+    # "mi_norm_iccs": "$I^{CCS}(G;A_0,A_1)/H(G)$",
+    # "syn_broja": "$I_{syn}^{BROJA}(G;A_0,A_1)$",
+    # "syn_norm_broja": "$I_{syn}^{BROJA}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "shd_broja": "$I_{shd}^{BROJA}(G;A_0,A_1)$",
+    # "shd_norm_broja": "$I_{shd}^{BROJA}(G;A_0,A_1)/I(G; A_0,A_1)$",
+    # "unq1_broja": "$I_{unq}^{BROJA}(G;A_0)$",
+    # "unq1_norm_broja": "$I_{unq}^{BROJA}(G;A_0)/I(G; A_0,A_1)$",
+    # "unq2_broja": "$I_{unq}^{BROJA}(G;A_1)$",
+    # "unq2_norm_broja": "$I_{unq}^{BROJA}(G;A_1)/I(G; A_0,A_1)$",
+    # "mi_broja": "$I^{BROJA}(G;A_0,A_1)$",
+    # "mi_norm_broja": "$I^{BROJA}(G;A_0,A_1)/H(G)$",
 }
+
+labels_short = labels.copy()
+for norm, norm_label in zip(["", "_norm"], ["", "/I(G; A_0,A_1)"]):
+    for estimator in ["sx", "sx_cor", "iccs", "broja", "syndisc"]:
+        for atom in ["syn", "shd", "unq1", "unq2", "mi"]:
+            if atom == "unq1":
+                atom_label = "unq1"
+                pid_label = "(G;A_0)"
+            elif atom == "unq2":
+                atom_label = "unq2"
+                pid_label = "(G;A_1)"
+            else:
+                atom_label = atom
+                pid_label = "(G;A_0,A_1)"
+            if estimator == "sx_cor":
+                estimator_label = "sx_{cor}"
+            else:
+                estimator_label = estimator
+            labels[f"{atom}{norm}_{estimator}"] = (
+                "$I_{"
+                + atom_label
+                + "}^{"
+                + estimator_label
+                + "}"
+                + pid_label
+                + norm_label
+                + "$"
+            )
+            labels_short[f"{atom}{norm}_{estimator}"] = (
+                "$I_{"
+                + atom_label
+                + "}^{"
+                + estimator_label
+                + "}"
+                + norm_label[:2]
+                + "$"
+            )
+
+        labels[f"coinfo{norm}_{estimator}"] = (
+            "$coI^{" + estimator + "}(G;A_0,A_1)" + norm_label + "$"
+        )
+        labels[f"coop_ratio{norm}_{estimator}"] = (
+            "$I^{"
+            + estimator
+            + "}_{shd}(G;A_0,A_1)/I^{"
+            + estimator
+            + "}_{syn}(G;A_0,A_1)"
+            + norm_label
+            + "$"
+        )
+        labels_short[f"coinfo{norm}_{estimator}"] = (
+            "$coI^{" + estimator + "}" + norm_label[:2] + "$"
+        )
+        labels_short[f"coop_ratio{norm}_{estimator}"] = (
+            "$I^{"
+            + estimator
+            + "}_{shd}/I^{"
+            + estimator
+            + "}_{syn}"
+            + norm_label[:2]
+            + "$"
+        )

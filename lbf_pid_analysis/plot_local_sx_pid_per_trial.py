@@ -22,209 +22,137 @@ import glob
 import argparse
 from pathlib import Path
 
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 import seaborn as sns
 
 from utils import initialize_logger, read_settings
 from analyze_pid_per_trial import (
-    load_experiment_data,
     generate_output_path,
-    get_trial_file_names,
     get_heuristic_used,
-    get_experiment_performance,
-    encode_source_variables,
-    encode_target_variable,
 )
-from pid_estimation import estimate_sx_pid
+from plot_measure_by_c import load_experiment_results, unify_axis_ylim
 import config as cfg
 
+FIGTYPE = "pdf"  # "pdf"/"png"
 
-def main(
-    path, settings_path, folder_number, trial, target_variable, render=False
-):
+
+def main(path, folder_number, target_variable, n_trials, n_folders, render=False):
     initialize_logger(
-        log_name="plot_local_sx_pid_t_{}_folder_{}_trial_{}".format(
-            target_variable, folder_number, trial
+        log_name="plot_local_sx_pid_t_{}_folder_{}".format(
+            target_variable, folder_number
         ),
     )
     outpath = generate_output_path(path)
-    local_pid_outpath = Path(outpath).joinpath("local_sx_pid")
+    local_pid_inpath = Path(outpath).joinpath("local_sx_pid")
+    local_pid_outpath = Path(outpath).joinpath("local_sx_pid_plots")
     local_pid_outpath.mkdir(parents=True, exist_ok=True)
 
     # Identify files collected for experiment. Load settings file.
     foldername = Path(path, f"{int(folder_number):02d}*")
-    trial_files = get_trial_file_names(foldername)
     experiment_settings = read_settings(
         glob.glob(str(foldername.joinpath("experiment_settings.yml")))[0]
     )
-    analysis_settings = read_settings(Path(settings_path))
-
-    # Create data structures to collect data over trials.
     heuristic = get_heuristic_used(experiment_settings)
-    logging.info(
-        "Analyzing trial %d (folder %d, heuristic %s, coop: %.2f)",
-        trial,
-        folder_number,
-        heuristic,
-        float(experiment_settings["environment"]["coop"]),
+    coop_param = float(experiment_settings["environment"]["coop"])
+
+    # Print local stats.
+    results, _ = load_experiment_results(
+        outpath, target_variable, max_folder=n_folders, load_local_pid=True
+    )
+    plot_local_pid_stats(
+        results[coop_param]["local_sx_pid"][heuristic],
+        local_pid_outpath,
+        filename=f"local_sx_pid_{heuristic}_c_{coop_param:.2f}_t_{target_variable}",
     )
 
-    # Load experiment data, movements, field setup, performance.
-    experiment_data = load_experiment_data(trial_files[trial])
-    performance = get_experiment_performance(
-        experiment_data, experiment_settings, trial, outpath=None, render=False
-    )
-
-    # Encode variables for information-theoretic analysis and estimate PID.
-    source_0, source_1 = encode_source_variables(
-        experiment_data,
-        source_type=analysis_settings["sources"],
-        source_encoding=analysis_settings["source_encoding"],
-    )
-    target, _ = encode_target_variable(performance, target_variable)
-    if np.all(source_0 == source_0[0]) or np.all(source_1 == source_1[0]):
-        logging.info("No agent movement for this trial")
-    pid_sx = estimate_sx_pid(source_0, source_1, target, correction=False)
-
-    filename = f"local_sx_pid_{heuristic}_c_{float(experiment_settings['environment']['coop']):.2f}_t_{target_variable}_trial_{trial}"
-    df = plot_local_sx_pid(
-        pid_sx["local"],
-        target_variable,
-        filename=local_pid_outpath.joinpath(f"{filename}.pdf"),
-        render=render,
-    )
-    df.to_csv(local_pid_outpath.joinpath(f"{filename}.csv"))
+    # Plot requested number of trials as heat maps
+    for trial in range(n_trials):  # experiment_settings["experiment"]["ntrials"]
+        logging.info(
+            "Plotting trial %d (folder %d, heuristic %s, coop: %.2f)",
+            trial,
+            folder_number,
+            heuristic,
+            float(experiment_settings["environment"]["coop"]),
+        )
+        filename = f"local_sx_pid_{heuristic}_c_{coop_param:.2f}_t_{target_variable}_trial_{trial}"
+        df = pd.read_csv(local_pid_inpath.joinpath(f"{filename}.csv"))
+        plot_local_sx_pid(
+            df,
+            figuretitle=f"Local SxPID-T={target_variable}, {cfg.labels[heuristic]}, trial={trial}, c={float(experiment_settings['environment']['coop']):.2f}",
+            filename=local_pid_outpath.joinpath(f"{filename}.{FIGTYPE}"),
+            render=render,
+        )
 
 
-def plot_local_sx_pid(df, target_variable, filename, render=False):
+def plot_local_sx_pid(df, figuretitle, filename, render=False):
     """Plot local Sx PID as heatmaps
 
     Parameters
     ----------
     df : pandas.DataFrame
         Local SxPID estimates per triplet of realizations
-    target_variable : str
-        Target variable used for PID estimation
+    figuretitle : str
+        Figure title
     filename : pathlib.Path
         Figure save path
     render : bool, optional
         Whether to display figure before saving, by default False
     """
-
     df.sort_values(
         by=[cfg.col_t, cfg.col_s1, cfg.col_s2], ascending=False, inplace=True
     )
 
     fig_height = df.shape[0] * 0.8
     _, ax = plt.subplots(
-        ncols=10,
-        figsize=(7, fig_height),
-        gridspec_kw={"width_ratios": [2, 1, 1, 2, 1, 1, 1, 1, 1, 1]},
+        ncols=13,
+        figsize=(7.5, fig_height),
+        gridspec_kw={"width_ratios": [2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]},
     )
 
-    # Plot outcomes
-    sns.heatmap(
+    def plot_heatmap(dat, ax, cmap, vmin=None, vmax=None, fmt=".3f", annot_font_size=7):
+        sns.heatmap(  # counts
+            dat,
+            ax=ax,
+            cbar=False,
+            cmap=cmap,
+            annot=True,
+            fmt=fmt,
+            annot_kws={"size": annot_font_size},
+            vmin=vmin,
+            vmax=vmax,
+        )
+
+    plot_heatmap(  # realizations
         df[[cfg.col_s1, cfg.col_s2, cfg.col_t]],
         ax=ax[0],
-        cbar=False,
         cmap="Pastel1",
-        # annot=df[['source1'_LABEL, 'source2'_LABEL, 'target'_LABEL]], annot_kws={"size": annot_font_size}, fmt='',
-        annot=True,
+        fmt="d",
         vmin=0,
         vmax=5,
     )
-    fmt_pid = ".3f"
-    annot_font_size = 7
-    # Plot probabilities of individual outcomes
-    sns.heatmap(
-        df[[cfg.col_count]],
-        ax=ax[1],
-        cbar=False,
-        cmap="Greys",
-        annot=True,
-        fmt="d",
-        annot_kws={"size": annot_font_size},
+    plot_heatmap(df[[cfg.col_count]], ax=ax[1], cmap="Greys", fmt="d")  # counts
+    plot_heatmap(  # joint probabilities
+        df[[cfg.col_joint_prob]], ax=ax[2], cmap="Greys", vmin=0, vmax=1.0
     )
-    sns.heatmap(
-        df[[cfg.col_joint_prob]],
-        ax=ax[2],
-        cbar=False,
-        cmap="Greys",
-        annot=True,
-        fmt=fmt_pid,
-        annot_kws={"size": annot_font_size},
-        vmin=0,
-        vmax=1.0,
-    )
-    sns.heatmap(
-        df[[cfg.col_lmi_s1_s2_t, cfg.col_lmi_s1_t, cfg.col_lmi_s2_t]],
-        ax=ax[3],
-        cbar=False,
-        cmap="Greys",
-        annot=True,
-        fmt=fmt_pid,
-        annot_kws={"size": annot_font_size},
-    )
+    plot_heatmap(df[[cfg.col_lmi_s1_s2_t]], ax=ax[3], cmap="Greys")  # local joint MI
 
-    # Plot local PID estimates
-    df["syn/lmi"] = df[cfg.col_syn] / df[cfg.col_lmi_s1_s2_t]
-    df["syn*p"] = df[cfg.col_syn] * df[cfg.col_joint_prob]
-    sns.heatmap(
-        df[[cfg.col_unq_s1]],
-        ax=ax[4],
-        cbar=False,
-        cmap="Greens",
-        annot=True,
-        fmt=fmt_pid,
-        annot_kws={"size": annot_font_size},
-    )
-    sns.heatmap(
-        df[[cfg.col_unq_s2]],
-        ax=ax[5],
-        cbar=False,
-        cmap="Greens",
-        annot=True,
-        fmt=fmt_pid,
-        annot_kws={"size": annot_font_size},
-    )
-    sns.heatmap(
-        df[[cfg.col_shd]],
-        ax=ax[6],
-        cbar=False,
-        cmap="Reds",
-        annot=True,
-        fmt=fmt_pid,
-        annot_kws={"size": annot_font_size},
-    )
-    sns.heatmap(
-        df[[cfg.col_syn]],
-        ax=ax[7],
-        cbar=False,
-        cmap="Blues",
-        annot=True,
-        fmt=fmt_pid,
-        annot_kws={"size": annot_font_size},
-    )
-    sns.heatmap(
-        df[["syn/lmi"]],
-        ax=ax[8],
-        cbar=False,
-        cmap="Blues",
-        annot=True,
-        fmt=fmt_pid,
-        annot_kws={"size": annot_font_size},
-    )
-    sns.heatmap(
-        df[["syn*p"]],
-        ax=ax[9],
-        cbar=False,
-        cmap="Blues",
-        annot=True,
-        fmt=fmt_pid,
-        annot_kws={"size": annot_font_size},
-    )
-    plt.suptitle(f"SxPID - target {target_variable}")
+    # Local PID estimates
+    plot_heatmap(df[[cfg.col_unq_s1]], ax=ax[4], cmap="Greens")
+    plot_heatmap(df[[cfg.col_unq_s2]], ax=ax[5], cmap="Greens")
+    plot_heatmap(df[[cfg.col_shd]], ax=ax[6], cmap="Reds")
+    plot_heatmap(df[[cfg.col_syn]], ax=ax[7], cmap="Blues")
+
+    # Local weighted PID estimates
+    plot_heatmap(df[["mi*p"]], ax=ax[8], cmap="Greys")
+    plot_heatmap(df[["unq_s1*p"]], ax=ax[9], cmap="Greens")
+    plot_heatmap(df[["unq_s2*p"]], ax=ax[10], cmap="Greens")
+    plot_heatmap(df[["shd*p"]], ax=ax[11], cmap="Reds")
+    plot_heatmap(df[["syn*p"]], ax=ax[12], cmap="Blues")
+
+    plt.suptitle(figuretitle)
     for a in ax.flatten():
         a.xaxis.set_ticks_position("top")
         a.axes.get_yaxis().set_visible(False)
@@ -246,6 +174,96 @@ def plot_local_sx_pid(df, target_variable, filename, render=False):
     return df
 
 
+def plot_local_pid_stats(local_pid, outpath, filename, weighted=True):
+    for df in local_pid:
+        df.sort_values(
+            by=[cfg.col_t, cfg.col_s1, cfg.col_s2], ascending=False, inplace=True
+        )
+        df["realizations"] = [
+            tuple(r)
+            for r in np.array([df["s1"].values, df["s2"].values, df["t"].values]).T
+        ]
+        df.set_index("realizations", inplace=True)
+        df.drop(columns=["s1", "s2", "t"], inplace=True)
+    df = pd.concat(local_pid, keys=np.arange(len(local_pid)))
+    df_counts = pd.DataFrame(
+        [df.xs(col, axis=1).unstack().count() for col in df.columns], index=df.columns
+    ).T
+    df_means = pd.DataFrame(
+        [df.xs(col, axis=1).unstack().mean() for col in df.columns], index=df.columns
+    ).T
+    df_sds = pd.DataFrame(
+        [df.xs(col, axis=1).unstack().std(ddof=1) for col in df.columns],
+        index=df.columns,
+    ).T.fillna(0)
+
+    logging.info(
+        "Statistics for local PID estimates over all trials:\nMeans:\n%s\nSD:\n%s\nCounts\n%s",
+        df_means,
+        df_sds,
+        df_counts,
+    )
+    logging.info("Saving statistics to %s/%s*.csv", outpath, filename)
+    df_means.to_csv(outpath.joinpath(f"{filename}_means.csv"))
+    df_sds.to_csv(outpath.joinpath(f"{filename}_sds.csv"))
+    df_counts.to_csv(outpath.joinpath(f"{filename}_counts.csv"))
+
+    plot_columns = ["p(s1,s2,t)"]
+    if weighted:
+        plot_columns += ["mi*p", "unq_s1*p", "unq_s2*p", "shd*p", "syn*p"]
+    else:
+        plot_columns += ["i(s1,s2;t)", "unq_s1", "unq_s2", "shd", "syn"]
+    colors = ["lightgray"] + [
+        "gray",
+        cfg.colors["green_muted_lighter_1"],
+        cfg.colors["green_muted_lighter_1"],
+        cfg.colors["red_muted_lighter_1"],
+        cfg.colors["blue_muted_lighter_1"],
+    ]
+    fig = plt.figure(figsize=(len(plot_columns) * 0.6, 3))
+    gs = GridSpec(len(df_means), 2, width_ratios=[1, len(plot_columns)])
+    ax_pid = []
+    ax_prob = []
+    for i in np.arange(len(df_means)):
+        ax1 = fig.add_subplot(gs[i, 0])
+        ax2 = fig.add_subplot(gs[i, 1])
+        ax1.set(ylabel=df_means.index[i])
+        for a, column, color in zip(
+            [ax1, ax2], [[plot_columns[0]], plot_columns[1:]], [colors[0], colors[1:]]
+        ):
+            a.bar(x=column, height=df_means[column].iloc[i], color=color)
+            a.errorbar(
+                x=column,
+                y=df_means[column].iloc[i],
+                yerr=df_sds[column].iloc[i],
+                fmt=".",  # plot error markers only, the line is plottled slightly thicker below
+                markersize=0,
+                capsize=2,
+                elinewidth=0.5,
+                color="k",
+            )
+            a.axhline(0, lw=0.7, color="k")
+        ax_prob.append(ax1)
+        ax_pid.append(ax2)
+        # for j, col in zip(np.arange(len(plot_columns)), plot_columns):
+        #     ax[i, j].bar(x=[col], height=df_means[col].iloc[i], color=colors[j])
+        #     ax[i, j].errorbar(
+        #         x=[col],
+        #         y=df_means[col].iloc[i],
+        #         yerr=df_sds[col].iloc[i],
+        #         fmt="",  # plot error markers only, the line is plottled slightly thicker below
+        #         capsize=2,
+        #         elinewidth=0.5,
+        #         color="k",
+        #     )
+        #     ax[i, j].axhline(0, lw=0.7, color="k")
+    unify_axis_ylim(np.array(ax_prob))
+    unify_axis_ylim(np.array(ax_pid))
+    plt.tight_layout()
+    plt.subplots_adjust(hspace=0)
+    plt.savefig(outpath.joinpath(f"{filename}_all_trials_stats.{FIGTYPE}"))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Information-theoretic analysis of LBF experiments."
@@ -254,16 +272,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "-p",
         "--path",
-        default="../../lbf_experiments/shared_goal_dist_0_0_v7",
+        default="../../lbf_experiments/shared_goal_dist_0_0_v13",
         type=str,
         help="Path to experimental results",
-    )
-    parser.add_argument(
-        "-s",
-        "--settings",
-        default="../settings/analysis_settings.yml",
-        type=str,
-        help="Path to analysis settings file",
     )
     parser.add_argument(
         "-f",
@@ -273,10 +284,10 @@ if __name__ == "__main__":
         help="Number of the folder to analyze, corresponds to one heuristic",
     )
     parser.add_argument(
-        "--trial",
-        default=1,
+        "--total_folders",
+        default=55,
         type=int,
-        help="Trial to plot from specified folder",
+        help="Total number of folders",
     )
     parser.add_argument(
         "-t",
@@ -285,13 +296,19 @@ if __name__ == "__main__":
         type=str,
         help=("Variable to use as target in PID estimation"),
     )
+    parser.add_argument(
+        "--trials",
+        default=3,
+        type=int,
+        help=("N first trials for which to plot local PID"),
+    )
     args = parser.parse_args()
 
     main(
         args.path,
-        args.settings,
         args.folder,
-        args.trial,
         args.target,
+        args.trials,
+        args.total_folders,
         args.render,
     )

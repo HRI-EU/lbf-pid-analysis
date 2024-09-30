@@ -42,9 +42,7 @@ def _check_data_for_mi_estimation(x1, x2, discretize_method, n_bins=None):
             try:
                 settings.update({"alph1": n_bins["x1"], "alph2": n_bins["x2"]})
             except KeyError as err:
-                logging.info(
-                    "If n_bins is a dict, it has to contain keys 'x1', 'x2'."
-                )
+                logging.info("If n_bins is a dict, it has to contain keys 'x1', 'x2'.")
                 logging.info(err.args)
                 raise
         else:
@@ -124,8 +122,7 @@ def estimate_mi_discrete(
         tail="one_bigger",
     )
     logging.debug(  # pylint: disable=W1201
-        "Surrogate distribution: %s"
-        % permutation_distribution  # pylint: disable=C0209
+        "Surrogate distribution: %s" % permutation_distribution  # pylint: disable=C0209
     )
     return mi, significance, p_value
 
@@ -155,7 +152,7 @@ def estimate_h_discrete(target):
         return 0
     est = JidtDiscreteH(settings)
     h = est.estimate(target)
-    logging.info("Estimated target entropy, H(T): %.5f", h)
+    logging.debug("Estimated target entropy, H(T): %.5f", h)
     return h
 
 
@@ -237,9 +234,7 @@ class JidtDiscreteH(JidtDiscrete):
             if var.min() < 0:
                 raise ValueError("Minimum of process is smaller than 0.")
             if var.max() >= self.settings["alph"]:
-                raise ValueError(
-                    "Maximum of process is larger than the alphabet size."
-                )
+                raise ValueError("Maximum of process is larger than the alphabet size.")
             if self.settings["alph"] < np.unique(var).shape[0]:
                 raise RuntimeError(
                     "The process alphabet size does not match the no. unique elements in the process."
@@ -276,9 +271,7 @@ class JidtDiscreteH(JidtDiscrete):
         # conversion
         calc.addObservations(jp.JArray(jp.JInt, 1)(var.tolist()))
         if self.settings["local_values"]:
-            return np.array(
-                calc.computeLocal(jp.JArray(jp.JInt, 1)(var.tolist()))
-            )
+            return np.array(calc.computeLocal(jp.JArray(jp.JInt, 1)(var.tolist())))
         return float(calc.computeAverageLocalOfObservations())
 
     def get_analytic_distribution(self, **data):
