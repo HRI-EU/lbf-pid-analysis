@@ -20,18 +20,13 @@
 #
 import logging
 
+import config as cfg
+import dit
+import idtxl.lattices as lt
 import numpy as np
 import pandas as pd
-
-from idtxl.estimators_multivariate_pid import (
-    SxPID,
-)
-import idtxl.lattices as lt
 from idtxl import pid_goettingen
-import dit
-from syndisc.pid import PID_SD
-
-import config as cfg
+from idtxl.estimators_multivariate_pid import SxPID
 
 
 def estimate_joint_distribution(source1, source2, target):
@@ -87,7 +82,7 @@ def estimate_pid(measure, source1, source2, target):
     Parameters
     ----------
     measure : str
-        Measure to use ('sx', 'sx_cor', 'iccs', 'broja', 'syndisc')
+        Measure to use ('sx', 'sx_cor', 'iccs', 'broja', 'dep')
     source1 : numpy.ndarray
         Realizations source 1
     source2 : numpy.ndarray
@@ -113,12 +108,12 @@ def estimate_pid(measure, source1, source2, target):
         pid = estimate_i_ccs_pid_dit(source1, source2, target, verbose=False)
     elif measure == "broja":
         pid = estimate_broja_pid_dit(source1, source2, target, verbose=False)
-    elif measure == "syndisc":
-        pid = estimate_pid_syndisc(source1, source2, target, verbose=False)
+    elif measure == "dep":
+        pid = estimate_i_dep_pid_dit(source1, source2, target, verbose=False)
     else:
         raise RuntimeError("Unknown measure %s", measure, verbose=False)
     pid = _calculate_normalized_atoms(pid)
-    return _calculate_coop_measures(pid)
+    return _calculate_coinformation(pid)
 
 
 def estimate_pid_from_dist(measure, dist):
@@ -131,7 +126,7 @@ def estimate_pid_from_dist(measure, dist):
     Parameters
     ----------
     measure : str
-        Measure to use ('sx', 'sx_cor', 'iccs', 'broja', 'syndisc')
+        Measure to use ('sx', 'sx_cor', 'iccs', 'broja', 'dep')
     dist : dict
         Joint distribution to estimate from
 
@@ -153,17 +148,18 @@ def estimate_pid_from_dist(measure, dist):
         pid = estimate_i_ccs_pid_dit_from_dist(dist, verbose=False)
     elif measure == "broja":
         pid = estimate_broja_pid_from_dist(dist, verbose=False)
-    elif measure == "syndisc":
-        pid = estimate_pid_syndisc_from_dist(dist, verbose=False)
+    elif measure == "dep":
+        pid = estimate_i_dep_pid_dit_from_dist(dist, verbose=False)
     else:
-        raise RuntimeError("Unknown measure %s", measure, verbose=False)
+        msg = f"Unknown measure {measure}"
+        raise RuntimeError(msg)
     pid = _calculate_normalized_atoms(pid)
-    return _calculate_coop_measures(pid)
+    return _calculate_coinformation(pid)
 
 
 def _calculate_normalized_atoms(pid):
     # Normalize PID atoms by the joint mutual information.
-    for atom in ["syn", "shd", "unq_s1", "unq_s2"]:
+    for atom in [cfg.col_syn, cfg.col_shd, cfg.col_unq_s1, cfg.col_unq_s2]:
         if pid["mi"] != 0:
             pid[f"{atom}_norm"] = pid[atom] / pid["mi"]
         else:
@@ -171,23 +167,11 @@ def _calculate_normalized_atoms(pid):
     return pid
 
 
-def _calculate_coop_measures(pid):
+def _calculate_coinformation(pid):
     # Calculate measures of cooperation (coInfo and ratio shd/syn)
     pid["coinfo"] = np.array(pid[cfg.col_shd]) - np.array(pid[cfg.col_syn])
     pid["coinfo_norm"] = np.array(pid[cfg.col_shd_norm]) - np.array(
         pid[cfg.col_syn_norm]
-    )
-    pid["coop_ratio"] = np.divide(
-        np.array(pid[cfg.col_shd], dtype=float),
-        np.array(pid[cfg.col_syn], dtype=float),
-        out=np.zeros_like(np.array(pid[cfg.col_shd]), dtype=float),
-        where=np.array(pid[cfg.col_syn]) != 0,
-    )
-    pid["coop_ratio_norm"] = np.divide(
-        np.array(pid["shd_norm"], dtype=float),
-        np.array(pid["syn_norm"], dtype=float),
-        out=np.zeros_like(np.array(pid["shd_norm"]), dtype=float),
-        where=np.array(pid["syn_norm"]) != 0,
     )
     return pid
 
@@ -218,6 +202,32 @@ def estimate_i_ccs_pid_dit(source1, source2, target, verbose=False):
     return _get_iccs_results(pid)
 
 
+def estimate_i_dep_pid_dit(source1, source2, target, verbose=False):
+    """Estimate I_dep PID by James et al. using the dit estimator.
+
+    Parameters
+    ----------
+    source1 : numpy.ndarray
+        Realizations of first source
+    source2 : numpy.ndarray
+        Realizations of second source
+    target : numpy.ndarray
+        Realizations of target
+    verbose : bool, optional
+        Whether to print intermediate steps to console, by default False
+
+    Returns
+    -------
+    dict
+        PID results
+    """
+    d = estimate_joint_distribution(source1, source2, target)
+    if verbose:
+        print("dit distribution:\n", d)
+    pid = dit.pid.PID_dep(d)
+    return _get_iccs_results(pid)
+
+
 def estimate_i_ccs_pid_dit_from_dist(dist, verbose=False):
     """Estimate I_CCS PID by Robin Ince using the dit estimator.
 
@@ -234,6 +244,25 @@ def estimate_i_ccs_pid_dit_from_dist(dist, verbose=False):
         PID results
     """
     pid = dit.pid.PID_CCS(dit.Distribution([k for k in dist], [dist[k] for k in dist]))
+    return _get_iccs_results(pid)
+
+
+def estimate_i_dep_pid_dit_from_dist(dist, verbose=False):
+    """Estimate I_CCS PID by Robin Ince using the dit estimator.
+
+    Parameters
+    ----------
+    dist : dict
+        Joint distribution
+    verbose : bool, optional
+        Whether to print intermediate steps to console, by default False
+
+    Returns
+    -------
+    dict
+        PID results
+    """
+    pid = dit.pid.PID_dep(dit.Distribution([k for k in dist], [dist[k] for k in dist]))
     return _get_iccs_results(pid)
 
 
@@ -352,7 +381,8 @@ def estimate_sx_pid_from_dist(pdf, correction=False, num_source_vars=2, verbose=
     }
     if correction:
         pid_sx = correct_sx_pid(pid_sx, verbose)
-    return _prepare_sx_pid_output(pid_sx, correction, verbose)
+    pid_sx = _prepare_sx_pid_output(pid_sx, correction, verbose)
+    return _calculate_normalized_atoms(pid_sx)
 
 
 def correct_sx_pid(pid_sx, verbose):
@@ -405,68 +435,6 @@ def _prepare_sx_pid_output(pid_sx, correction, verbose=True):
         else:
             logging.info("Estimated synergy (I_sx): %.5f", pid_sx[cfg.col_syn])
     return pid_sx
-
-
-def _get_syndisc_results(pid, verbose=False):
-    pid = {
-        cfg.col_unq_s1: pid.get_pi(cfg.syndisc_lattice["unq1"]),
-        cfg.col_unq_s2: pid.get_pi(cfg.syndisc_lattice["unq2"]),
-        cfg.col_shd: pid.get_pi(cfg.syndisc_lattice["shd"]),
-        cfg.col_syn: pid.get_pi(cfg.syndisc_lattice["syn"]),
-        cfg.col_mi: (
-            pid.get_pi(cfg.syndisc_lattice["unq1"])
-            + pid.get_pi(cfg.syndisc_lattice["unq2"])
-            + pid.get_pi(cfg.syndisc_lattice["shd"])
-            + pid.get_pi(cfg.syndisc_lattice["syn"])
-        ),
-    }
-    pid[cfg.col_mi] = (
-        pid[cfg.col_unq_s1] + pid[cfg.col_unq_s2] + pid[cfg.col_syn] + pid[cfg.col_shd]
-    )
-    if verbose:
-        logging.info("Estimated synergy (syndisc): %.5f", pid[cfg.col_syn])
-    pid["local"] = []
-    return pid
-
-
-def estimate_pid_syndisc(s1, s2, t, verbose=False):
-    """Estimate PID using the synergy-based synergistic disclosure estimator
-
-    Parameters
-    ----------
-    s1 : numpy.ndarray
-        Realizations source 1
-    s2 : numpy.ndarray
-        Realizations source 2
-    t : numpy.ndarray
-        Realizations target
-    verbose : bool, optional
-        Whether to print progress to console, by default False
-
-    Returns
-    -------
-    dict
-        PID estimates
-    """
-    d = estimate_joint_distribution(s1, s2, t)
-    if verbose:
-        print("dit distribution:\n", d)
-
-    if verbose:
-        print("Estimate synergistic disclosure")
-    res = PID_SD(d)
-    if verbose:
-        print("done")
-    return _get_syndisc_results(res, verbose)
-
-
-def estimate_pid_syndisc_from_dist(dist, verbose=False):
-    if verbose:
-        print("Estimate synergistic disclosure")
-    res = PID_SD(dit.Distribution([k for k in dist], [dist[k] for k in dist]))
-    if verbose:
-        print("done")
-    return _get_syndisc_results(res, verbose)
 
 
 def estimate_broja_pid_dit(source1, source2, target, verbose=False):

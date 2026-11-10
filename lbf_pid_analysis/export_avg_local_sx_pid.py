@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 #
 # Plot local SxPID for selected trials.
 #
@@ -17,18 +16,16 @@
 # along with lbf_pid_analysis. If not, see <http://www.gnu.org/licenses/>.
 #
 #
-import logging
 import argparse
+import logging
 from pathlib import Path
-from itertools import product
 
-import pandas as pd
-import numpy as np
-
-from utils import initialize_logger
-from plot_measure_by_c import load_experiment_results
-from analyze_pid_per_trial import generate_output_path
 import config as cfg
+import numpy as np
+import pandas as pd
+from analyze_pid_per_trial import generate_output_path
+from plot_measure_by_c import load_experiment_results
+from utils import initialize_logger
 
 
 def main(path, target_variable, n_folders, coop_params):
@@ -166,7 +163,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-p",
         "--path",
-        default="../../lbf_experiments/shared_goal_dist_0_0_v13",
+        default="../../lbf_experiment_results",
         type=str,
         help="Path to experimental results",
     )

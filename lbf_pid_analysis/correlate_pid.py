@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 #
 # Contrast PID profiles and total task success to show that PID can
 # differentiate between different strategies that lead to similar results.
@@ -18,27 +17,24 @@
 # along with lbf_pid_analysis. If not, see <http://www.gnu.org/licenses/>.
 #
 #
+import argparse
 import logging
 from pathlib import Path
-import argparse
 
+import config as cfg
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter
-import seaborn as sns
 import statsmodels.api as sm
-
-from utils import initialize_logger
+from matplotlib.ticker import FormatStrFormatter
 from plot_measure_by_c import (
     load_experiment_results,
-    unify_axis_ylim,
     unify_axis_xlim,
+    unify_axis_ylim,
 )
-import config as cfg
+from utils import initialize_logger
 
-
-FILETYPE = "pdf" # "png"
+FILETYPE = "pdf"  # "png"
 
 
 def main(path, target_variable, x, y, n_folders, render):
@@ -101,7 +97,6 @@ def correlate_pid_and_task_success(
     color = cfg.colors["red_muted_lighter_1"]
     for i, heuristic in enumerate(heuristics_used):
         for j, coop in enumerate(coop_parameters):
-
             df_plot = pd.DataFrame(
                 {
                     x: results[coop][x][heuristic],
@@ -149,14 +144,12 @@ def collect_local_pid_measures(results):
         i_shd = local_pid.loc[mask, "shd*p"].values
         p = local_pid.loc[mask, cfg.col_joint_prob].values
         if len(i_shd) == 0:
-            logging.debug(
-                "No joint actions found for %s, c=%.2f", heuristic, coop
-            )
+            logging.debug("No joint actions found for %s, c=%.2f", heuristic, coop)
             return 0.0, 0.0
         else:
-            assert (
-                len(i_shd) == 1
-            ), f"Multiple values for joint actions: {p}/{i_shd} in\n{local_pid}"
+            assert len(i_shd) == 1, (
+                f"Multiple values for joint actions: {p}/{i_shd} in\n{local_pid}"
+            )
         return i_shd[0], p[0]
 
     def get_indiv1_action(local_pid):
@@ -168,14 +161,12 @@ def collect_local_pid_measures(results):
         i_unq1 = local_pid.loc[mask, "unq_s1*p"].values
         p = local_pid.loc[mask, cfg.col_joint_prob].values
         if len(i_unq1) == 0:
-            logging.debug(
-                "No indiv1 actions found for %s, c=%.2f", heuristic, coop
-            )
+            logging.debug("No indiv1 actions found for %s, c=%.2f", heuristic, coop)
             return 0.0, 0.0
         else:
-            assert (
-                len(i_unq1) == 1
-            ), f"Multiple values for indiv1 actions: {p}/{i_unq1} in\n{local_pid}"
+            assert len(i_unq1) == 1, (
+                f"Multiple values for indiv1 actions: {p}/{i_unq1} in\n{local_pid}"
+            )
         return i_unq1[0], p[0]
 
     # Struct: c - measure - heuristic
@@ -227,7 +218,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-p",
         "--path",
-        default="../../lbf_experiments/shared_goal_dist_0_0_v13",
+        default="../../lbf_experiment_results",
         type=str,
         help="Path to experimental results",
     )

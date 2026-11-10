@@ -18,18 +18,15 @@
 #
 #
 import sys
-from pathlib import Path
 
-import pytest
 import numpy as np
-import pandas as pd
+import pytest
 
 sys.path.insert(0, "../lbf_pid_analysis")
 from pid_estimation import (  # pylint: disable=E0401,C0413,C0411
+    estimate_i_ccs_pid_dit,
     estimate_joint_distribution,
     estimate_sx_pid,
-    estimate_i_ccs_pid_dit,
-    estimate_pid_syndisc,
 )
 
 COL_SYNERGY = "syn"
@@ -41,9 +38,7 @@ def test_estimate_joint_distribution():
     N = 100
 
     with pytest.raises(TypeError):
-        estimate_joint_distribution(
-            np.ones(N, dtype=float), np.ones(N), np.ones(N)
-        )
+        estimate_joint_distribution(np.ones(N, dtype=float), np.ones(N), np.ones(N))
 
     source1 = np.ones(N, dtype=int)
     source2 = np.ones(N, dtype=int)
@@ -54,12 +49,11 @@ def test_estimate_joint_distribution():
     for alphabet in distribution.alphabet:
         assert alphabet == ("1",)
     for outcome in distribution.outcomes:
-        assert outcome == "111"
+        print("Outcome:", outcome)
+        assert outcome == ("1", "1", "1")
     assert distribution.pmf == 1.0
 
-    target2 = np.hstack(
-        (np.ones(N // 2, dtype=int), np.zeros(N // 2, dtype=int))
-    )
+    target2 = np.hstack((np.ones(N // 2, dtype=int), np.zeros(N // 2, dtype=int)))
     distribution = estimate_joint_distribution(source1, source2, target2)
     print(distribution)
     for alphabet in distribution.alphabet[:2]:
@@ -86,23 +80,17 @@ def test_pid_estimators():
     assert np.isclose(pid["shd"], 0, atol=0.0001)
     pid = estimate_i_ccs_pid_dit(source1, source2, target_xor)
     assert np.isclose(pid[COL_SYNERGY], 1, rtol=0.015)
-    pid = estimate_pid_syndisc(source1, source2, target_xor)
-    assert np.isclose(pid[COL_SYNERGY], 1, rtol=0.2)
 
     target_and = np.logical_and(source1, source2).astype(int)
     pid = estimate_sx_pid(source1, source2, target_and, correction=True)
     assert np.isclose(pid[COL_SYNERGY], 0.311, rtol=0.015)
     pid = estimate_i_ccs_pid_dit(source1, source2, target_and)
     assert np.isclose(pid[COL_SYNERGY], 0.311, rtol=0.1)
-    pid = estimate_pid_syndisc(source1, source2, target_and)
-    assert np.isclose(pid[COL_SYNERGY], 0.311, rtol=0.015)
 
     with pytest.raises(TypeError):
         estimate_sx_pid(source1, source2, np.arange(10, dtype=float))
     with pytest.raises(TypeError):
         estimate_i_ccs_pid_dit(source1, source2, np.arange(10, dtype=float))
-    with pytest.raises(TypeError):
-        estimate_pid_syndisc(source1, source2, np.arange(10, dtype=float))
 
 
 if __name__ == "__main__":

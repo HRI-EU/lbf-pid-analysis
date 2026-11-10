@@ -17,36 +17,65 @@
 # along with lbf_pid_analysis. If not, see <http://www.gnu.org/licenses/>.
 #
 #
-import logging
 import glob
-import argparse
+import logging
 from pathlib import Path
 
-import pandas as pd
-import numpy as np
+import config as cfg
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-import seaborn as sns
-
-from utils import initialize_logger, read_settings
+import numpy as np
+import pandas as pd
 from analyze_pid_per_trial import (
     generate_output_path,
     get_heuristic_used,
 )
-from plot_measure_by_c import load_experiment_results, unify_axis_ylim
-import config as cfg
+from matplotlib.gridspec import GridSpec
+from plot_measure_by_c import load_experiment_results
+from utils import initialize_logger, read_settings
 
-FIGTYPE = "pdf"  # "pdf"/"png"
+FIGTYPE = "svg"  # "pdf"/"png"
+
+# Keep one fixed realization order in every panel. Missing realizations are
+# shown as empty rows, which makes conditions and trials directly comparable.
+REALIZATION_ORDER = [
+    (0, 0, 0),
+    (1, 0, 0),
+    (0, 1, 0),
+    (1, 0, 1),
+    (0, 1, 1),
+    (1, 1, 0),
+    (1, 1, 1),
+]
+
+PROBABILITY_COLUMN = "p(s1,s2,t)"
+WEIGHTED_COLUMNS = ["unq_s1*p", "unq_s2*p", "shd*p", "syn*p"]
+GLOBAL_LABELS = [
+    r"$I_{\mathrm{unq},1}$",
+    r"$I_{\mathrm{unq},2}$",
+    r"$I_{\mathrm{shd}}$",
+    r"$I_{\mathrm{syn}}$",
+]
+LOCAL_LABELS = [
+    r"$p\,i_{\mathrm{unq},1}$",
+    r"$p\,i_{\mathrm{unq},2}$",
+    r"$p\,i_{\mathrm{shd}}$",
+    r"$p\,i_{\mathrm{syn}}$",
+]
+ATOM_COLORS = [
+    cfg.colors["green_muted_lighter_1"],
+    cfg.colors["green_muted_lighter_1"],
+    cfg.colors["red_muted_lighter_1"],
+    cfg.colors["blue_muted_lighter_1"],
+]
 
 
-def main(path, folder_number, target_variable, n_trials, n_folders, render=False):
+def main(path, folder_number, target_variable, n_folders, render=False):
     initialize_logger(
         log_name="plot_local_sx_pid_t_{}_folder_{}".format(
             target_variable, folder_number
         ),
     )
     outpath = generate_output_path(path)
-    local_pid_inpath = Path(outpath).joinpath("local_sx_pid")
     local_pid_outpath = Path(outpath).joinpath("local_sx_pid_plots")
     local_pid_outpath.mkdir(parents=True, exist_ok=True)
 
@@ -58,7 +87,7 @@ def main(path, folder_number, target_variable, n_trials, n_folders, render=False
     heuristic = get_heuristic_used(experiment_settings)
     coop_param = float(experiment_settings["environment"]["coop"])
 
-    # Print local stats.
+    # Plot means and standard deviations across trials.
     results, _ = load_experiment_results(
         outpath, target_variable, max_folder=n_folders, load_local_pid=True
     )
@@ -66,249 +95,257 @@ def main(path, folder_number, target_variable, n_trials, n_folders, render=False
         results[coop_param]["local_sx_pid"][heuristic],
         local_pid_outpath,
         filename=f"local_sx_pid_{heuristic}_c_{coop_param:.2f}_t_{target_variable}",
+        figuretitle=f"{cfg.labels[heuristic]}, $c={coop_param:.2f}$",
+        render=render,
     )
 
-    # Plot requested number of trials as heat maps
-    for trial in range(n_trials):  # experiment_settings["experiment"]["ntrials"]
-        logging.info(
-            "Plotting trial %d (folder %d, heuristic %s, coop: %.2f)",
-            trial,
-            folder_number,
-            heuristic,
-            float(experiment_settings["environment"]["coop"]),
+
+def _prepare_local_pid_df(df):
+    """Return one row per realization in a fixed, comparable order."""
+    dat = df.copy()
+    dat["realization"] = list(
+        zip(
+            dat[cfg.col_s1].astype(int),
+            dat[cfg.col_s2].astype(int),
+            dat[cfg.col_t].astype(int),
         )
-        filename = f"local_sx_pid_{heuristic}_c_{coop_param:.2f}_t_{target_variable}_trial_{trial}"
-        df = pd.read_csv(local_pid_inpath.joinpath(f"{filename}.csv"))
-        plot_local_sx_pid(
-            df,
-            figuretitle=f"Local SxPID-T={target_variable}, {cfg.labels[heuristic]}, trial={trial}, c={float(experiment_settings['environment']['coop']):.2f}",
-            filename=local_pid_outpath.joinpath(f"{filename}.{FIGTYPE}"),
-            render=render,
-        )
+    )
+    dat = dat.set_index("realization")
+    dat = dat.reindex(REALIZATION_ORDER)
+
+    # Missing realizations have probability zero and therefore zero weighted
+    # contribution to every global atom.
+    fill_zero = [PROBABILITY_COLUMN, "mi*p"] + WEIGHTED_COLUMNS
+    for column in fill_zero:
+        if column in dat.columns:
+            dat[column] = dat[column].fillna(0.0)
+
+    return dat
 
 
-def plot_local_sx_pid(df, figuretitle, filename, render=False):
-    """Plot local Sx PID as heatmaps
+def _symmetric_limit(values, minimum=0.01, pad=1.15):
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return minimum
+    return max(minimum, np.max(np.abs(values)) * pad)
+
+
+def _plot_global_profile(ax, global_values, global_errors=None):
+    """Plot the global PID profile above the realization-level panels."""
+    x = np.arange(len(global_values))
+    ax.bar(x, global_values, color=ATOM_COLORS)
+    if global_errors is not None:
+        ax.errorbar(
+            x,
+            global_values,
+            yerr=global_errors,
+            fmt="none",
+            capsize=2,
+            elinewidth=0.6,
+            color="k",
+        )
+    ax.axhline(0, lw=0.5, color="lightgray")
+    ax.set_xticks(x)
+    ax.set_xticklabels(GLOBAL_LABELS)
+    ax.set_ylabel(cfg.labels["sx"])
+
+
+def _plot_realization_rows(
+    fig,
+    gs,
+    probabilities,
+    weighted_means,
+    weighted_errors=None,
+    probability_errors=None,
+):
+    """Plot probability and weighted local PID rows with shared scales."""
+    n_rows = len(REALIZATION_ORDER)
+    prob_max = max(
+        0.05,
+        np.nanmax(
+            probabilities
+            + (probability_errors if probability_errors is not None else 0)
+        )
+        * 1.15,
+    )
+
+    all_weighted = weighted_means.to_numpy().ravel()
+    if weighted_errors is not None:
+        all_weighted = np.concatenate(
+            [
+                all_weighted,
+                (weighted_means + weighted_errors).to_numpy().ravel(),
+                (weighted_means - weighted_errors).to_numpy().ravel(),
+            ]
+        )
+    weighted_lim = _symmetric_limit(all_weighted)
+
+    prob_axes = []
+    pid_axes = []
+    for row, realization in enumerate(REALIZATION_ORDER):
+        ax_prob = fig.add_subplot(gs[row, 0])
+        ax_pid = fig.add_subplot(gs[row, 1])
+        prob_axes.append(ax_prob)
+        pid_axes.append(ax_pid)
+
+        # Probability bar.
+        p = probabilities.iloc[row]
+        p_err = None if probability_errors is None else probability_errors.iloc[row]
+        ax_prob.barh([0], [p], color="lightgray")
+        ax_prob.set(ylim=[-0.8, 0.8])
+        if p_err is not None:
+            ax_prob.errorbar(
+                p,
+                0,
+                xerr=p_err,
+                fmt="none",
+                capsize=2,
+                elinewidth=0.6,
+                color="k",
+            )
+        ax_prob.set_xlim(0, prob_max)
+        ax_prob.set_yticks([0])
+        ax_prob.set_yticklabels([str(realization)], fontsize=6)
+        ax_prob.axvline(0, lw=0.7, color="k")
+
+        # Weighted local PID bars.
+        values = weighted_means.iloc[row].to_numpy(dtype=float)
+        x = np.arange(len(WEIGHTED_COLUMNS))
+        ax_pid.bar(x, values, color=ATOM_COLORS)  # , width=0.3)
+        if weighted_errors is not None:
+            ax_pid.errorbar(
+                x,
+                values,
+                yerr=weighted_errors.iloc[row].to_numpy(dtype=float),
+                fmt="none",
+                capsize=2,
+                elinewidth=0.6,
+                color="k",
+            )
+        ax_pid.axhline(0, lw=0.5, color="lightgray")
+        ax_pid.set_ylim(-weighted_lim, weighted_lim)
+        ax_pid.set_xticks(x)
+
+        if row < n_rows - 1:
+            ax_prob.tick_params(axis="x", labelbottom=False)
+            ax_pid.tick_params(axis="x", labelbottom=False)
+        else:
+            ax_prob.set_xlabel(r"$p(a_1,a_2,g)$")
+            ax_pid.set_xticklabels(LOCAL_LABELS, rotation=35, ha="right")
+
+        # if row == 0:
+        #     ax_prob.set_title("Empirical probability", fontsize=7)
+        #     ax_pid.set_title("Probability-weighted local PID", fontsize=7)
+        # else:
+        # ax_pid.set_xticklabels([])
+
+        ax_pid.tick_params(axis="y", labelsize=6)
+        ax_prob.tick_params(axis="x", labelsize=6)
+
+    return prob_axes, pid_axes
+
+
+def plot_local_pid_stats(
+    local_pid,
+    outpath,
+    filename,
+    figuretitle=None,
+    weighted=True,
+    render=False,
+):
+    """Plot average local PID statistics across trials.
 
     Parameters
     ----------
-    df : pandas.DataFrame
-        Local SxPID estimates per triplet of realizations
-    figuretitle : str
-        Figure title
-    filename : pathlib.Path
-        Figure save path
+    local_pid : list[pandas.DataFrame]
+        Local SxPID results, one data frame per trial.
+    outpath : pathlib.Path
+        Output directory.
+    filename : str
+        Output filename without extension.
+    figuretitle : str, optional
+        Figure title.
+    weighted : bool, optional
+        Kept for API compatibility. The revised figure always uses weighted
+        local contributions because these sum to the global PID atoms.
     render : bool, optional
-        Whether to display figure before saving, by default False
+        Whether to display the figure before closing it.
     """
-    df.sort_values(
-        by=[cfg.col_t, cfg.col_s1, cfg.col_s2], ascending=False, inplace=True
-    )
-
-    fig_height = df.shape[0] * 0.8
-    _, ax = plt.subplots(
-        ncols=13,
-        figsize=(7.5, fig_height),
-        gridspec_kw={"width_ratios": [2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]},
-    )
-
-    def plot_heatmap(dat, ax, cmap, vmin=None, vmax=None, fmt=".3f", annot_font_size=7):
-        sns.heatmap(  # counts
-            dat,
-            ax=ax,
-            cbar=False,
-            cmap=cmap,
-            annot=True,
-            fmt=fmt,
-            annot_kws={"size": annot_font_size},
-            vmin=vmin,
-            vmax=vmax,
+    if not weighted:
+        logging.warning(
+            "The revised local PID figure always plots probability-weighted "
+            "local contributions. Ignoring weighted=False."
         )
 
-    plot_heatmap(  # realizations
-        df[[cfg.col_s1, cfg.col_s2, cfg.col_t]],
-        ax=ax[0],
-        cmap="Pastel1",
-        fmt="d",
-        vmin=0,
-        vmax=5,
+    prepared = [_prepare_local_pid_df(df) for df in local_pid]
+    stacked = pd.concat(
+        prepared, keys=np.arange(len(prepared)), names=["trial", "realization"]
     )
-    plot_heatmap(df[[cfg.col_count]], ax=ax[1], cmap="Greys", fmt="d")  # counts
-    plot_heatmap(  # joint probabilities
-        df[[cfg.col_joint_prob]], ax=ax[2], cmap="Greys", vmin=0, vmax=1.0
+
+    df_means = stacked.groupby(level="realization").mean(numeric_only=True)
+    df_sds = (
+        stacked.groupby(level="realization").std(ddof=1, numeric_only=True).fillna(0)
     )
-    plot_heatmap(df[[cfg.col_lmi_s1_s2_t]], ax=ax[3], cmap="Greys")  # local joint MI
+    df_counts = stacked.groupby(level="realization").count()
 
-    # Local PID estimates
-    plot_heatmap(df[[cfg.col_unq_s1]], ax=ax[4], cmap="Greens")
-    plot_heatmap(df[[cfg.col_unq_s2]], ax=ax[5], cmap="Greens")
-    plot_heatmap(df[[cfg.col_shd]], ax=ax[6], cmap="Reds")
-    plot_heatmap(df[[cfg.col_syn]], ax=ax[7], cmap="Blues")
+    df_means = df_means.reindex(REALIZATION_ORDER)
+    df_sds = df_sds.reindex(REALIZATION_ORDER).fillna(0)
+    df_counts = df_counts.reindex(REALIZATION_ORDER).fillna(0)
 
-    # Local weighted PID estimates
-    plot_heatmap(df[["mi*p"]], ax=ax[8], cmap="Greys")
-    plot_heatmap(df[["unq_s1*p"]], ax=ax[9], cmap="Greens")
-    plot_heatmap(df[["unq_s2*p"]], ax=ax[10], cmap="Greens")
-    plot_heatmap(df[["shd*p"]], ax=ax[11], cmap="Reds")
-    plot_heatmap(df[["syn*p"]], ax=ax[12], cmap="Blues")
-
-    plt.suptitle(figuretitle)
-    for a in ax.flatten():
-        a.xaxis.set_ticks_position("top")
-        a.axes.get_yaxis().set_visible(False)
-        a.set_xticklabels(a.get_xticklabels(), rotation=45)
-        for _, spine in a.spines.items():
-            spine.set_visible(True)
-
-    logging.info("Local SxPID\n %s", df)
-    logging.info("Summed, weighted synergy: %.4f", df["syn*p"].sum())
-
-    plt.tight_layout()
-    plt.subplots_adjust(wspace=0)
-    print(f"Saving figure to {filename}")
-    plt.savefig(filename)
-    if render:
-        plt.show()
-    else:
-        plt.close()
-    return df
-
-
-def plot_local_pid_stats(local_pid, outpath, filename, weighted=True):
-    for df in local_pid:
-        df.sort_values(
-            by=[cfg.col_t, cfg.col_s1, cfg.col_s2], ascending=False, inplace=True
-        )
-        df["realizations"] = [
-            tuple(r)
-            for r in np.array([df["s1"].values, df["s2"].values, df["t"].values]).T
-        ]
-        df.set_index("realizations", inplace=True)
-        df.drop(columns=["s1", "s2", "t"], inplace=True)
-    df = pd.concat(local_pid, keys=np.arange(len(local_pid)))
-    df_counts = pd.DataFrame(
-        [df.xs(col, axis=1).unstack().count() for col in df.columns], index=df.columns
-    ).T
-    df_means = pd.DataFrame(
-        [df.xs(col, axis=1).unstack().mean() for col in df.columns], index=df.columns
-    ).T
-    df_sds = pd.DataFrame(
-        [df.xs(col, axis=1).unstack().std(ddof=1) for col in df.columns],
-        index=df.columns,
-    ).T.fillna(0)
-
-    logging.info(
-        "Statistics for local PID estimates over all trials:\nMeans:\n%s\nSD:\n%s\nCounts\n%s",
-        df_means,
-        df_sds,
-        df_counts,
-    )
+    # logging.info(
+    #     "Statistics for local PID estimates over all trials:\nMeans:\n%s\nSD:\n%s\nCounts\n%s",
+    #     df_means,
+    #     df_sds,
+    #     df_counts,
+    # )
     logging.info("Saving statistics to %s/%s*.csv", outpath, filename)
     df_means.to_csv(outpath.joinpath(f"{filename}_means.csv"))
     df_sds.to_csv(outpath.joinpath(f"{filename}_sds.csv"))
     df_counts.to_csv(outpath.joinpath(f"{filename}_counts.csv"))
 
-    plot_columns = ["p(s1,s2,t)"]
-    if weighted:
-        plot_columns += ["mi*p", "unq_s1*p", "unq_s2*p", "shd*p", "syn*p"]
+    probabilities = df_means[PROBABILITY_COLUMN]
+    probability_errors = df_sds[PROBABILITY_COLUMN]
+    weighted_means = df_means[WEIGHTED_COLUMNS]
+    weighted_errors = df_sds[WEIGHTED_COLUMNS]
+
+    # The global atoms are sums over weighted local contributions. Compute the
+    # global profile per trial first, then take its mean and SD across trials.
+    global_by_trial = pd.DataFrame(
+        [df[WEIGHTED_COLUMNS].sum(axis=0) for df in prepared]
+    )
+    global_means = global_by_trial.mean(axis=0).to_numpy()
+    global_sds = global_by_trial.std(axis=0, ddof=1).fillna(0).to_numpy()
+
+    fig = plt.figure(figsize=(2, 3.5))
+    gs_outer = GridSpec(2, 1, height_ratios=[1.2, 6.0], hspace=0.35, figure=fig)
+    ax_global = fig.add_subplot(gs_outer[0])
+    _plot_global_profile(ax_global, global_means, global_sds)
+
+    gs_rows = gs_outer[1].subgridspec(
+        len(REALIZATION_ORDER),
+        2,
+        width_ratios=[2, 4.0],
+        wspace=0.4,
+        hspace=0.0,
+    )
+    _plot_realization_rows(
+        fig,
+        gs_rows,
+        probabilities,
+        weighted_means,
+        weighted_errors=weighted_errors,
+        probability_errors=probability_errors,
+    )
+
+    if figuretitle:
+        fig.suptitle(figuretitle, y=0.995, fontsize=8, fontweight="bold")
+
+    plt.subplots_adjust(left=0.14, right=0.99, top=0.94, bottom=0.10)
+    output_file = outpath.joinpath(f"{filename}_all_trials_stats.{FIGTYPE}")
+    logging.info("Saving figure to %s", output_file)
+    plt.savefig(output_file)
+    if render:
+        plt.show()
     else:
-        plot_columns += ["i(s1,s2;t)", "unq_s1", "unq_s2", "shd", "syn"]
-    colors = ["lightgray"] + [
-        "gray",
-        cfg.colors["green_muted_lighter_1"],
-        cfg.colors["green_muted_lighter_1"],
-        cfg.colors["red_muted_lighter_1"],
-        cfg.colors["blue_muted_lighter_1"],
-    ]
-    fig = plt.figure(figsize=(len(plot_columns) * 0.6, 3))
-    gs = GridSpec(len(df_means), 2, width_ratios=[1, len(plot_columns)])
-    ax_pid = []
-    ax_prob = []
-    for i in np.arange(len(df_means)):
-        ax1 = fig.add_subplot(gs[i, 0])
-        ax2 = fig.add_subplot(gs[i, 1])
-        ax1.set(ylabel=df_means.index[i])
-        for a, column, color in zip(
-            [ax1, ax2], [[plot_columns[0]], plot_columns[1:]], [colors[0], colors[1:]]
-        ):
-            a.bar(x=column, height=df_means[column].iloc[i], color=color)
-            a.errorbar(
-                x=column,
-                y=df_means[column].iloc[i],
-                yerr=df_sds[column].iloc[i],
-                fmt=".",  # plot error markers only, the line is plottled slightly thicker below
-                markersize=0,
-                capsize=2,
-                elinewidth=0.5,
-                color="k",
-            )
-            a.axhline(0, lw=0.7, color="k")
-        ax_prob.append(ax1)
-        ax_pid.append(ax2)
-        # for j, col in zip(np.arange(len(plot_columns)), plot_columns):
-        #     ax[i, j].bar(x=[col], height=df_means[col].iloc[i], color=colors[j])
-        #     ax[i, j].errorbar(
-        #         x=[col],
-        #         y=df_means[col].iloc[i],
-        #         yerr=df_sds[col].iloc[i],
-        #         fmt="",  # plot error markers only, the line is plottled slightly thicker below
-        #         capsize=2,
-        #         elinewidth=0.5,
-        #         color="k",
-        #     )
-        #     ax[i, j].axhline(0, lw=0.7, color="k")
-    unify_axis_ylim(np.array(ax_prob))
-    unify_axis_ylim(np.array(ax_pid))
-    plt.tight_layout()
-    plt.subplots_adjust(hspace=0)
-    plt.savefig(outpath.joinpath(f"{filename}_all_trials_stats.{FIGTYPE}"))
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Information-theoretic analysis of LBF experiments."
-    )
-    parser.add_argument("--render", action="store_true")
-    parser.add_argument(
-        "-p",
-        "--path",
-        default="../../lbf_experiments/shared_goal_dist_0_0_v13",
-        type=str,
-        help="Path to experimental results",
-    )
-    parser.add_argument(
-        "-f",
-        "--folder",
-        default=1,
-        type=int,
-        help="Number of the folder to analyze, corresponds to one heuristic",
-    )
-    parser.add_argument(
-        "--total_folders",
-        default=55,
-        type=int,
-        help="Total number of folders",
-    )
-    parser.add_argument(
-        "-t",
-        "--target",
-        default="any_food",
-        type=str,
-        help=("Variable to use as target in PID estimation"),
-    )
-    parser.add_argument(
-        "--trials",
-        default=3,
-        type=int,
-        help=("N first trials for which to plot local PID"),
-    )
-    args = parser.parse_args()
-
-    main(
-        args.path,
-        args.folder,
-        args.target,
-        args.trials,
-        args.total_folders,
-        args.render,
-    )
+        plt.close()

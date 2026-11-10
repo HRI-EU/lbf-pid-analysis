@@ -1,3 +1,35 @@
+[project]
+name = "lbf-pid-analysis"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    "dit",
+    "idtxl",
+    "ipykernel>=7.3.0",
+    "jinja2>=3.1.6",
+    "jpype1>=1.7.1",
+    "matplotlib>=3.11.0",
+    "numpy>=2.4.6",
+    "pandas-stubs>=3.0.5.260730",
+    "prettytable>=3.18.0",
+    "scikit-learn>=1.9.0",
+    "seaborn>=0.13.2",
+    "setuptools<82",
+    "statsmodels>=0.14.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "pytest-mock==3.15.1",
+    "ruff==0.15.21",
+    "mypy==2.3.0",
+    "pre-commit==4.6.0",
+    "types-seaborn>=0.13.2.20260728",
+]
+
 [tool.black]
 line_length = 80
 
@@ -5,21 +37,32 @@ line_length = 80
 max-line-length = 120
 
 # enable errors only
-enable     = [ 'E' ]
+enable = ['E']
 
 # disable all warning, convention, refactoring issues
 # and E0602: undefined variables
-disable    = [ 'W', 'C', 'R', 'E0602', 'bad-option-value', 'import-error']
+disable = ['W', 'C', 'R', 'E0602', 'bad-option-value', 'import-error']
 
 [tool.pylint.basic]
 good-names = [
-  "a", "c", "l", "m", "i",  # iterators
-  "mi", "p",  # fixed variable names in data analysis
-  "ax",  # matplotlib axis
-  "df",  # pandas DataFrame
-  "_", "__", # unneeded variable
-  "T", # generic type
-  "X", "x",
-  "Y", "y",
-  "bar",
+    "a", "c", "l", "m", "i", # iterators
+    "mi", "p", # fixed variable names in data analysis
+    "ax", # matplotlib axis
+    "df", # pandas DataFrame
+    "_", "__", # unneeded variable
+    "T", # generic type
+    "X", "x",
+    "Y", "y",
+    "bar",
 ]
+
+[tool.uv.sources]
+idtxl = { git = "https://github.com/pwollstadt/IDTxl.git", rev = "v1.6.0" }
+dit = { git = "https://github.com/dit/dit.git", rev = "v2.2" }
+
+[tool.mypy]
+python_version = "3.11"
+files = ["lbf_pid_analysis"]
+disallow_untyped_defs = true
+warn_no_return = true
+mypy_path = "lbf_pid_analysis"

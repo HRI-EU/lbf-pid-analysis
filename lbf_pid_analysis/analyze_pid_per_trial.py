@@ -17,33 +17,33 @@
 # along with lbf_pid_analysis. If not, see <http://www.gnu.org/licenses/>.
 #
 #
-import logging
+import argparse
 import glob
+import logging
 import pickle
 from pathlib import Path
-import argparse
 
+import matplotlib
+
+matplotlib.use("Agg")
+import config as cfg
+import idtxl.idtxl_utils as utils  # pylint: disable=E0401
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
-
-from sklearn.preprocessing import OrdinalEncoder
-
-import idtxl.idtxl_utils as utils  # pylint: disable=E0401
-
-from utils import initialize_logger, read_settings
 from mi_estimation import (
     estimate_h_discrete,
     estimate_mi_discrete,
 )
-from pid_estimation import estimate_pid, estimate_joint_distribution
-from plot_measure_by_c import set_layout
-import config as cfg
+from pid_estimation import estimate_joint_distribution, estimate_pid
+from sklearn.preprocessing import OrdinalEncoder
+from utils import initialize_logger, read_settings
 
 N_AGENTS = 2
-PID_MEASURES = ["syn", "shd", "unq1", "unq2", "coinfo", "coop_ratio"]
-ESTIMATORS = ["sx", "sx_cor", "iccs", "broja", "syndisc"]
+PID_ATOMS = [cfg.col_syn, cfg.col_shd, cfg.col_unq_s1, cfg.col_unq_s2, cfg.col_coinfo]
+# ESTIMATORS = ["sx", "sx_cor", "iccs", "broja", "syndisc"]
+ESTIMATORS = ["dep", "sx", "sx_cor", "iccs", "broja"]
 
 
 def summary_plot_pid(settings, results_by_heuristic, target_variable, filename, render):
@@ -65,7 +65,12 @@ def summary_plot_pid(settings, results_by_heuristic, target_variable, filename, 
     measures = []
     for est in ESTIMATORS:
         measures.append(
-            [f"syn_{est}", f"shd_{est}", f"unq1_{est}", f"unq2_{est}"],
+            [
+                f"{cfg.col_syn}_{est}",
+                f"{cfg.col_shd}_{est}",
+                f"{cfg.col_unq_s1}_{est}",
+                f"{cfg.col_unq_s2}_{est}",
+            ],
         )
 
     colors = [
@@ -82,8 +87,8 @@ def summary_plot_pid(settings, results_by_heuristic, target_variable, filename, 
             [
                 "$I_{syn}^{" + est + "}$",
                 "$I_{shd}^{" + est + "}$",
-                "$I_{unq}^{" + est + "}(F;A_0)$",
-                "$I_{unq}^{" + est + "}(F;A_1)$",
+                "$I_{unq}^{" + est + "}(G;A_1)$",
+                "$I_{unq}^{" + est + "}(G;A_2)$",
             ]
         )
 
@@ -124,7 +129,8 @@ def summary_plot(settings, results_by_heuristic, target_variable, filename, rend
     """
     measures = [
         ["h", "jmi", "mi_iccs", "mi_sx"],
-        ["syn_norm_iccs", "syn_norm_sx", "syn_norm_sx_cor", "syn_norm_syndisc"],
+        # ["syn_norm_iccs", "syn_norm_sx", "syn_norm_sx_cor", "syn_norm_syndisc"],
+        ["syn_norm_iccs", "syn_norm_sx", "syn_norm_sx_cor"],
         [
             "total_food_value_collected",
             "any_food_collected",
@@ -138,10 +144,10 @@ def summary_plot(settings, results_by_heuristic, target_variable, filename, rend
     ]
     labels = [
         [
-            "$H(F)$",
-            "$I(A_0,A_1;F)$",
-            "$I^{CCS}(A_0,A_1;F)$",
-            "$I^{Sx}(A_0,A_1;F)$",
+            "$H(G)$",
+            "$I(A_1,A_2;G)$",
+            "$I^{CCS}(A_1,A_2;G)$",
+            "$I^{Sx}(A_1,A_2;G)$",
         ],
         [
             "$I_{syn}^{CCS}/I$",
@@ -229,7 +235,6 @@ def make_summary_plot(  # pylint: disable=too-many-locals
 
     heuristics_used = list(results_by_heuristic[measures[0][0]].keys())
     if correlate_measure is not None:
-        set_layout()
         correlations = []
         for coop in heuristics_used:
             correlations.append(
@@ -254,7 +259,7 @@ def make_summary_plot(  # pylint: disable=too-many-locals
         ax[len(measures) - 1, 3].axis("off")
 
     heuristic_labels = [cfg.labels[c] for c in heuristics_used]
-    sns.despine(offset=2)
+    # sns.despine(offset=2)
     for a in ax.flatten():
         a.tick_params(axis="y", which="both", labelsize=8)
         a.xaxis.set_ticks(
@@ -322,10 +327,10 @@ def get_experiment_performance(  # pylint: disable=too-many-locals
         food_value_1.sum(),
     )
 
-    assert (
-        df.step.max() == settings["environment"]["max_episode_steps"] - 1
-    ), "Unequal step sizes: {}, {}".format(
-        df.step.max(), settings["environment"]["max_episode_steps"] - 1
+    assert df.step.max() == settings["environment"]["max_episode_steps"] - 1, (
+        "Unequal step sizes: {}, {}".format(
+            df.step.max(), settings["environment"]["max_episode_steps"] - 1
+        )
     )
 
     assert np.all(
@@ -341,6 +346,8 @@ def get_experiment_performance(  # pylint: disable=too-many-locals
     food_type = np.zeros(len(food_type_0), dtype=int)
     food_type[np.logical_or(food_type_0 == 1, food_type_1 == 1)] = 1
     food_type[np.logical_or(food_type_0 == 2, food_type_1 == 2)] = 2
+    coop_food = np.zeros(len(food_type_0), dtype=int)
+    coop_food[np.logical_or(food_type_0 == 2, food_type_1 == 2)] = 1
 
     _, ax = plt.subplots(ncols=3, nrows=3, figsize=(7, 5))
     ax[0, 0].scatter(np.where(food_value_0)[0], food_value_0[food_value_0 > 0], c="b")
@@ -414,6 +421,7 @@ def get_experiment_performance(  # pylint: disable=too-many-locals
             int
         ),  # if any agent collected an item
         "food_type_collected": food_type,  # type of food item collected, individual or joint goal
+        "coop_food_collected": coop_food,  # if a joint food was collected
         "cooperative_actions": (cooperative_actions).astype(
             int
         ),  # if a cooperative action took place
@@ -513,7 +521,7 @@ def encode_source_variables(experiment_data, source_type, source_encoding):
     return source_0, source_1
 
 
-def encode_target_variable(performance, target_variable):
+def encode_target_variable(performance, s1, s2, target_variable):
     """ "Discretize target variable that was requested in the settings.
 
     Available target variables:
@@ -522,6 +530,9 @@ def encode_target_variable(performance, target_variable):
     - mean_food_value_collected
     - any_food
     - food_type
+    - coop_food
+    - action_type_2
+    - action_type_3
     - n_collections
     - n_collections_agent_0
     - n_collections_agent_1
@@ -585,6 +596,55 @@ def encode_target_variable(performance, target_variable):
             )
             assert len(np.unique(target)) <= 3
             assert np.max(target) <= 2
+            assert np.min(target) >= 0
+
+    elif (
+        target_variable == "coop_food"
+    ):  # whether collected food item was cooperative (had level=2)
+        if len(np.unique(performance["coop_food_collected"])) == 1:
+            target = np.zeros(len(performance["coop_food_collected"]), dtype=int)
+        else:
+            n_bins = 2
+            target = utils.discretise(
+                performance["coop_food_collected"], numBins=n_bins
+            )
+            assert len(np.unique(target)) <= 2
+            assert np.max(target) <= 1
+            assert np.min(target) >= 0
+
+    elif (
+        target_variable == "action_type_2"
+    ):  # distinguish no load (0), individual load(1), or collective load(2) (simultaneous load is counted as individual load)
+        if len(np.unique(performance["any_food_collected"])) == 1:
+            target = np.zeros(len(performance["any_food_collected"]), dtype=int)
+        else:
+            action_type = performance["any_food_collected"].copy()
+            action_type[performance["cooperative_actions"] == 1] = 2
+            n_bins = 3
+            target = utils.discretise(action_type, numBins=n_bins)
+            assert len(np.unique(target)) <= 3
+            assert np.max(target) <= 2
+            assert np.min(target) >= 0
+
+    elif (
+        target_variable == "action_type_3"
+    ):  # distinguish no load (0), individual load(1), simultaneous load (2), or collective load (3)
+        if len(np.unique(performance["any_food_collected"])) == 1:
+            target = np.zeros(len(performance["any_food_collected"]), dtype=int)
+        else:
+            action_type = performance["any_food_collected"].copy()
+            mask_simultaneous = (
+                (s1 == 1)
+                & (s2 == 1)
+                & (performance["any_food_collected"] == 1)
+                & (performance["cooperative_actions"] == 0)
+            )
+            action_type[mask_simultaneous] = 2
+            action_type[performance["cooperative_actions"] == 1] = 3
+            n_bins = 4
+            target = utils.discretise(action_type, numBins=n_bins)
+            assert len(np.unique(target)) <= 4
+            assert np.max(target) <= 3
             assert np.min(target) >= 0
 
     elif (
@@ -654,8 +714,8 @@ def plot_variable_distributions(
         a.bar_label(bar, label_type="edge")
         a.set(ylabel=f"{label} count")
     plt.suptitle(
-        f'Variable distributions for {get_heuristic_used(settings)} sight: {settings["environment"]["sight"]}, '
-        f'coop: {float(settings["environment"]["coop"])}'
+        f"Variable distributions for {get_heuristic_used(settings)} sight: {settings['environment']['sight']}, "
+        f"coop: {float(settings['environment']['coop'])}"
     )
     fig.tight_layout()
     if outpath is not None:
@@ -751,20 +811,18 @@ def estimate_joint_mutual_information(source_0, source_1, target, n_perm, seed):
 
 def _append_pid_results(pid, est, results, heuristic):
     # Append PID estimates to global results structure
-    results[f"syn_{est}"][heuristic].append(pid[cfg.col_syn])
-    results[f"shd_{est}"][heuristic].append(pid[cfg.col_shd])
-    results[f"unq1_{est}"][heuristic].append(pid[cfg.col_unq_s1])
-    results[f"unq2_{est}"][heuristic].append(pid[cfg.col_unq_s2])
-    results[f"coop_ratio_{est}"][heuristic].append(pid[cfg.col_coop_ratio])
-    results[f"coinfo_{est}"][heuristic].append(pid[cfg.col_coinfo])
+    results[f"{cfg.col_syn}_{est}"][heuristic].append(pid[cfg.col_syn])
+    results[f"{cfg.col_shd}_{est}"][heuristic].append(pid[cfg.col_shd])
+    results[f"{cfg.col_unq_s1}_{est}"][heuristic].append(pid[cfg.col_unq_s1])
+    results[f"{cfg.col_unq_s2}_{est}"][heuristic].append(pid[cfg.col_unq_s2])
+    results[f"{cfg.col_coinfo}_{est}"][heuristic].append(pid[cfg.col_coinfo])
     results[f"mi_{est}"][heuristic].append(pid[cfg.col_mi])
 
-    results[f"syn_norm_{est}"][heuristic].append(pid[cfg.col_syn_norm])
-    results[f"shd_norm_{est}"][heuristic].append(pid[cfg.col_shd_norm])
-    results[f"unq1_norm_{est}"][heuristic].append(pid[cfg.col_unq_s1_norm])
-    results[f"unq2_norm_{est}"][heuristic].append(pid[cfg.col_unq_s2_norm])
-    results[f"coop_ratio_norm_{est}"][heuristic].append(pid[cfg.col_coop_ratio_norm])
-    results[f"coinfo_norm_{est}"][heuristic].append(pid[cfg.col_coinfo_norm])
+    results[f"{cfg.col_syn}_norm_{est}"][heuristic].append(pid[cfg.col_syn_norm])
+    results[f"{cfg.col_shd}_norm_{est}"][heuristic].append(pid[cfg.col_shd_norm])
+    results[f"{cfg.col_unq_s1}_norm_{est}"][heuristic].append(pid[cfg.col_unq_s1_norm])
+    results[f"{cfg.col_unq_s2}_norm_{est}"][heuristic].append(pid[cfg.col_unq_s2_norm])
+    results[f"{cfg.col_coinfo}_norm_{est}"][heuristic].append(pid[cfg.col_coinfo_norm])
     return results
 
 
@@ -826,7 +884,7 @@ def main(path, settings_path, folders, target_variable, render=False):
         "source_corr": {},
     }
     for estimator in ESTIMATORS:
-        for atom in PID_MEASURES:
+        for atom in PID_ATOMS:
             for norm in ["", "_norm"]:
                 results_all[f"{atom}{norm}_{estimator}"] = {}
         results_all[f"mi_{estimator}"] = {}
@@ -889,7 +947,9 @@ def main(path, settings_path, folders, target_variable, render=False):
                 source_type=analysis_settings["sources"],
                 source_encoding=analysis_settings["source_encoding"],
             )
-            target, _ = encode_target_variable(performance, target_variable)
+            target, _ = encode_target_variable(
+                performance, source_0, source_1, target_variable
+            )
             if trial < 5:  # plot and save data for first n trials only
                 plot_variable_distributions(
                     experiment_settings,

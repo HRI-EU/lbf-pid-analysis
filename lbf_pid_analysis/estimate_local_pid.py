@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 #
 # Plot local SxPID for selected trials.
 #
@@ -17,27 +16,24 @@
 # along with lbf_pid_analysis. If not, see <http://www.gnu.org/licenses/>.
 #
 #
-import logging
-import glob
 import argparse
+import glob
+import logging
 from pathlib import Path
 
+import config as cfg
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-from utils import initialize_logger, read_settings
 from analyze_pid_per_trial import (
-    load_experiment_data,
-    generate_output_path,
-    get_trial_file_names,
-    get_heuristic_used,
-    get_experiment_performance,
     encode_source_variables,
     encode_target_variable,
+    generate_output_path,
+    get_experiment_performance,
+    get_heuristic_used,
+    get_trial_file_names,
+    load_experiment_data,
 )
 from pid_estimation import estimate_sx_pid
-import config as cfg
+from utils import initialize_logger, read_settings
 
 
 def main(path, settings_path, folders, target_variable):
@@ -82,7 +78,9 @@ def main(path, settings_path, folders, target_variable):
                 source_type=analysis_settings["sources"],
                 source_encoding=analysis_settings["source_encoding"],
             )
-            target, _ = encode_target_variable(performance, target_variable)
+            target, _ = encode_target_variable(
+                performance, source_0, source_1, target_variable
+            )
             if np.all(source_0 == source_0[0]) or np.all(source_1 == source_1[0]):
                 logging.info("No agent movement for this trial")
             pid_sx = estimate_sx_pid(source_0, source_1, target, correction=False)
@@ -108,7 +106,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-p",
         "--path",
-        default="../../lbf_experiments/shared_goal_dist_0_0_v13",
+        default="../../lbf_experiment_results",
         type=str,
         help="Path to experimental results",
     )

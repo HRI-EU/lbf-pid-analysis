@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 #
 # Plot estimated information-theoretic or game performance measure by heuristic and
 # cooperativity, c.
@@ -18,41 +17,28 @@
 # along with lbf_pid_analysis. If not, see <http://www.gnu.org/licenses/>.
 #
 #
+import argparse
 import logging
 import pickle
 from pathlib import Path
-import argparse
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-from utils import initialize_logger
 import config as cfg
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import numpy.typing as npt
+import pandas as pd
+import seaborn as sns
+from utils import initialize_logger
 
-FILETYPE = "pdf" # "png"
+FILETYPE = "svg"  # "png"
 
 
-def get_plot_label(n_labels, plot_label_type="A"):
+def get_plot_label(n_labels: int, plot_label_type: str = "A") -> np.ndarray:
     return np.array([chr(ord(plot_label_type) + a) for a in range(n_labels)])
 
 
-def set_layout():
-    """Set matplotlib layout"""
-    SMALL = 10
-    MEDIUM = 12
-    LARGE = 14
-    plt.rc("font", size=MEDIUM)  # controls default text sizes
-    plt.rc("axes", titlesize=MEDIUM)  # fontsize of the axes title
-    plt.rc("axes", labelsize=MEDIUM)  # fontsize of the x and y labels
-    plt.rc("xtick", labelsize=SMALL)  # fontsize of the tick labels
-    plt.rc("ytick", labelsize=MEDIUM)  # fontsize of the tick labels
-    plt.rc("legend", fontsize=MEDIUM)  # legend fontsize
-    plt.rc("figure", titlesize=LARGE)  # fontsize of the figure title
-
-
-def get_colors(measure):
+def get_colors(measure: str) -> list[str]:
     COLORS = {
         "syn": [
             cfg.colors["blue_muted"],
@@ -82,8 +68,12 @@ def get_colors(measure):
 
 
 def load_experiment_results(
-    loadpath, target_variable, folder_steps=5, max_folder=25, load_local_pid=False
-):
+    loadpath: Path,
+    target_variable: str,
+    folder_steps: int = 5,
+    max_folder: int = 25,
+    load_local_pid: bool = False,
+) -> tuple[dict, list[float]]:
     """Load experiment results and add them to a single dict
 
     Parameters
@@ -104,6 +94,8 @@ def load_experiment_results(
     dict
         Collected results with structure
         result[coop_parameter][measure][heuristic]
+    list
+        Cooperation parameters used
     """
     results = {}
     coop_parameters = []
@@ -143,14 +135,27 @@ def load_experiment_results(
     return results, coop_parameters
 
 
-def main(path, target_variable, measures, n_folders, render):
+def main(
+    path: str,
+    target_variable: str,
+    measures: str,
+    n_folders: int,
+    render: bool,
+) -> None:
     initialize_logger(log_name=f"compare_measure_by_c_t_{target_variable}")
     loadpath = Path(path).joinpath("results_single_trial_analysis")
     results, coop_parameters = load_experiment_results(
         loadpath, target_variable, max_folder=n_folders
     )
 
-    fig, ax = plt.subplots(ncols=2, nrows=len(measures), figsize=(5.5, len(measures) * 1.8))
+    fig, ax = plt.subplots(
+        ncols=2,
+        nrows=len(measures),
+        figsize=(
+            cfg.plot_elements["max_width_in"] / 2,
+            len(measures) * cfg.plot_elements["row_height"],
+        ),  # sharey=True
+    )
     plot_label_types = get_plot_label(n_labels=(2 * len(measures)))
     if len(measures) == 1:
         ax = ax[np.newaxis, :]
@@ -161,9 +166,6 @@ def main(path, target_variable, measures, n_folders, render):
         plot_measure_lineplot(results, coop_parameters, measure, a, l)
         unify_axis_ylim(a)
 
-    if not np.any([True for s in measures if "coop_ratio" in s]):
-        logging.info("Unifying axis limits")
-        unify_axis_ylim(a)
     plt.tight_layout()
     plt.subplots_adjust(hspace=0.35)
     measure_label = (
@@ -182,7 +184,7 @@ def main(path, target_variable, measures, n_folders, render):
         plt.close()
 
 
-def unify_axis_ylim(ax):
+def unify_axis_ylim(ax: npt.NDArray[np.object_]) -> None:
     # Alternative solution to common y-axis, since sharey=True doesn't show
     # axis labels, fix as shown here:
     # https://stackoverflow.com/questions/29266966/show-tick-labels-when-sharing-an-axis
@@ -191,10 +193,11 @@ def unify_axis_ylim(ax):
     for a in ax.flatten():
         ylim[0] = np.min([ylim[0], a.get_ylim()[0]])
         ylim[1] = np.max([ylim[1], a.get_ylim()[1]])
-    plt.setp(ax, ylim=ylim)
+    for a in ax.flatten():
+        a.set(ylim=ylim)
 
 
-def unify_axis_xlim(ax):
+def unify_axis_xlim(ax: npt.NDArray[np.object_]) -> None:
     # Alternative solution to common y-axis, since sharey=True doesn't show
     # axis labels, fix as shown here:
     # https://stackoverflow.com/questions/29266966/show-tick-labels-when-sharing-an-axis
@@ -206,76 +209,92 @@ def unify_axis_xlim(ax):
     plt.setp(ax, xlim=xlim)
 
 
-def set_plotlabel(ax, axlabel, x_pos=-0.15, y_pos=1.01):
+def set_plotlabel(
+    ax: matplotlib.axes.Axes, axlabel: str, x_pos: float = -0.15, y_pos: float = 1.01
+) -> None:
     ax.text(
-        x_pos, y_pos, axlabel, transform=ax.transAxes, fontsize=12, fontweight="bold"
+        x_pos, y_pos, axlabel, transform=ax.transAxes, fontsize=7, fontweight="bold"
     )
 
 
-def get_mean_pid(results, coop_parameters, measure):
-    c_temp = list(results.keys())[0]
-    try:
-        means = pd.DataFrame(
-            columns=list(results[c_temp][measure].keys()),
-            index=coop_parameters,
-        )
-    except KeyError as exc:
-        raise KeyError(
-            "Unknown measure, try one of %s", list(results[c_temp].keys())
-        ) from exc
-    stds = pd.DataFrame(
-        columns=list(results[c_temp][measure].keys()), index=coop_parameters
-    )
+def plot_measure_lineplot(
+    results: dict,
+    coop_parameters: list[float],
+    measure: str,
+    ax: npt.NDArray[np.object_],
+    ax_label: str,
+) -> None:
+    # Convert the non-aggregated results to long format
+    plot_data_dict = []
 
     for coop in coop_parameters:
-        means.loc[coop] = pd.DataFrame(results[coop][measure]).mean()
-        stds.loc[coop] = pd.DataFrame(results[coop][measure]).std(ddof=1)
-    heuristic_labels = {c: cfg.labels[c] for c in results[c_temp][measure].keys()}
-    means.rename(columns=heuristic_labels, inplace=True)
-    stds.rename(columns=heuristic_labels, inplace=True)
+        for heuristic, values in results[coop][measure].items():
+            for value in np.asarray(values).ravel():
+                plot_data_dict.append(
+                    {
+                        "c": coop,
+                        "policy": cfg.labels[heuristic],
+                        "value": value,
+                    }
+                )
 
-    return means, stds
+    plot_data = pd.DataFrame(plot_data_dict)
 
+    def _plot_lines(
+        df: pd.DataFrame,
+        policies: list[str],
+        colors: list[str],
+        ax: matplotlib.axes.Axes,
+        axlabel: str,
+    ) -> None:
+        sns.lineplot(
+            data=df[df["policy"].isin(policies)],
+            x="c",
+            y="value",
+            hue="policy",
+            hue_order=policies,
+            palette=dict(zip(policies, colors)),
+            estimator="mean",
+            errorbar="sd",
+            err_style="band",
+            marker="o",
+            markersize=5,
+            linewidth=1.5,
+            ax=ax,
+        )
 
-def plot_measure_lineplot(results, coop_parameters, measure, ax, ax_label):
-    sns.set_style("ticks")
-    means, stds = get_mean_pid(results, coop_parameters, measure)
-
-    def _plot_lines(df, colors, ax, axlabel):
-        styles = ["-.", "--", ":"]
-        for col, style, c in zip(
-            df.columns, styles, colors
-        ):  # loop over cols to set style and color
-            df[col].plot(
-                yerr=stds[col],
-                capsize=2,
-                capthick=0.5,
-                elinewidth=0.5,
-                color=c,
-                # fmt=style,
-                ax=ax,
-            ).legend(loc="best")
+        ax.legend(loc="best")
         set_plotlabel(ax, axlabel)
 
     _plot_lines(
-        means[["BL", "Ego"]],
-        get_colors(measure),
+        plot_data,
+        ["BL", "Ego"],
+        get_colors(measure)[:2],
         ax[0],
         ax_label[0],
     )
+
     _plot_lines(
-        means[["Coop", "Adapt", "Social"]],
-        get_colors(measure),
+        plot_data,
+        ["Coop", "Adapt", "Social"],
+        get_colors(measure)[:3],
         ax[1],
         ax_label[1],
     )
 
     for a in ax:
-        a.set(xlabel="$c$", ylabel=cfg.labels[measure])
-        a.axhline(0, zorder=0, color="lightgray", linestyle=":")
+        a.set(
+            xlabel="$c$",
+            ylabel=cfg.labels[measure],
+        )
+        a.axhline(
+            0,
+            zorder=0,
+            color="lightgray",
+            linestyle=":",
+        )
         a.tick_params(axis="y", labelleft=True)
-    # plt.legend(loc="center left", bbox_to_anchor=(1.0, 0.5))
-    # plt.grid(which="major", axis="both")
+
     plt.tight_layout()
 
 
@@ -287,7 +306,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-p",
         "--path",
-        default="../../lbf_experiments/shared_goal_dist_0_0_v13",
+        default="../../lbf_experiment_results",
         type=str,
         help="Path to analysis settings file",
     )
@@ -302,7 +321,11 @@ if __name__ == "__main__":
         "-m",
         "--measures",
         nargs="+",
-        default=["shd_sx, syn_sx"],  # syn_norm_sx, syn_norm_sx_cor, syn_norm_iccs
+        default=[
+            "shd_sx",
+            "syn_sx",
+            "h",
+        ],  # syn_norm_sx, syn_norm_sx_cor, syn_norm_iccs
         help=("Measures to plot"),
     )
     parser.add_argument(

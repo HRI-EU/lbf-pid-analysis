@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 #
 # Plot local SxPID for selected trials.
 #
@@ -17,23 +16,16 @@
 # along with lbf_pid_analysis. If not, see <http://www.gnu.org/licenses/>.
 #
 #
-import logging
-import glob
 import argparse
-from pathlib import Path
+import logging
 from itertools import product
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-import seaborn as sns
-
-from utils import initialize_logger, read_settings
-from analyze_pid_per_trial import generate_output_path
-from plot_measure_by_c import load_experiment_results, unify_axis_ylim
-from compare_correlated_logic_gates_pid import generate_empty_dist
 import config as cfg
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from analyze_pid_per_trial import generate_output_path
+from plot_measure_by_c import load_experiment_results
 
 FIGTYPE = "pdf"  # "pdf"/"png"
 
@@ -64,7 +56,6 @@ def plot_avg_joint_distributions(results, outpath, filename, render=False):
             realizations = list(product(*[np.arange(2), np.arange(2), np.arange(2)]))
             dist = {r: [] for r in realizations}
             for df in results[coop_param]["local_sx_pid"][heuristic]:
-
                 df["realizations"] = [
                     tuple(r)
                     for r in np.array(
@@ -85,7 +76,7 @@ def plot_avg_joint_distributions(results, outpath, filename, render=False):
             )
             # print(dist_df)
             dist_df.drop([(0, 0, 0)], inplace=True)
-            real = [str(r) for r in dist_df.index]
+            real = [f"({r[0]}, {r[1]}, {r[2]})" for r in dist_df.index]
             ax[i, j].bar(x=real, height=dist_df["mean"], color="gray")
             ax[i, j].errorbar(
                 x=real,
@@ -97,8 +88,14 @@ def plot_avg_joint_distributions(results, outpath, filename, render=False):
                 elinewidth=0.5,
                 color="k",
             )
+            ax[i, j].axhline(
+                0,
+                zorder=0,
+                color="lightgray",
+                # linestyle=":",
+            )
             ax[i, j].set(title=f"{cfg.labels[heuristic]} - c={coop_param}")
-            ax[i, j].tick_params(labelrotation=90)
+            ax[i, j].tick_params(axis="x", labelrotation=90)
     # unify_axis_ylim(ax)
     plt.tight_layout()
     logging.info("Saving figure to %s", outpath.joinpath(f"{filename}.{FIGTYPE}"))
@@ -117,7 +114,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-p",
         "--path",
-        default="../../lbf_experiments/shared_goal_dist_0_0_v13",
+        default="../../lbf_experiment_results",
         type=str,
         help="Path to experimental results",
     )

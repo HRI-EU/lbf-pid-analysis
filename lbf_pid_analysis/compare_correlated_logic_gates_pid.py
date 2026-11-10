@@ -20,49 +20,80 @@
 #
 import argparse
 import logging
-from pathlib import Path
 from itertools import product
+from pathlib import Path
+from typing import Any
 
-from matplotlib import pyplot as plt
+import config as cfg
+import matplotlib
 import numpy as np
-from prettytable import PrettyTable
-
+import seaborn as sns
+from dit import Distribution
+from dit.shannon import mutual_information
+from matplotlib import pyplot as plt
 from pid_estimation import estimate_pid_from_dist
-from estimate_local_pid import calculate_weighted_local_pid
-from plot_local_sx_pid_per_trial import plot_local_pid_stats
 from plot_measure_by_c import unify_axis_ylim
 from utils import initialize_logger
-import config as cfg
 
-FIGTYPE = "pdf"
+FIGTYPE = "svg"
 R_PLOT = [-0.9, 0.0, 0.9]
-COLORS = ["#003653", "#af363c", "#246920", "#246920", "grey"]
-
-small = 8
-medium = 10
-large = 12
-plt.rc(
-    "font", size=cfg.plot_elements["textsize"]["large"]
-)  # controls default text sizes
-plt.rc(
-    "axes", titlesize=cfg.plot_elements["textsize"]["large"]
-)  # fontsize of the axes title
-plt.rc(
-    "axes", labelsize=cfg.plot_elements["textsize"]["large"]
-)  # fontsize of the x and y labels
-plt.rc(
-    "xtick", labelsize=cfg.plot_elements["textsize"]["medium"]
-)  # fontsize of the tick labels
-plt.rc(
-    "ytick", labelsize=cfg.plot_elements["textsize"]["medium"]
-)  # fontsize of the tick labels
-plt.rc("legend", fontsize=cfg.plot_elements["textsize"]["medium"])  # legend fontsize
-plt.rc(
-    "figure", titlesize=cfg.plot_elements["textsize"]["large"]
-)  # fontsize of the figure title
+# COLORS = ["#003653", "#af363c", "#246920", "#246920", "grey"]
+# COLORS = ["#2678A5", "#C65359", "#3E9B50", "#3E9B50", "grey"]
+COLORS = ["#0077BB", "#D94B55", "#52AA3E", "#52AA3E", "grey"]
+# COLORS = [
+#     cfg.colors["blue_muted"],
+#     cfg.colors["red_muted"],
+#     cfg.colors["green_muted"],
+#     cfg.colors["green_muted"],
+#     cfg.colors["grey_muted"],
+# ]
+PID_ATOMS = [cfg.col_syn, cfg.col_shd, cfg.col_unq_s1, cfg.col_unq_s2]
 
 
-def correlated_gates(p, c, gate_name, N=10000, eps=0.1):
+def estimate_source_mi(x: np.ndarray, y: np.ndarray) -> float:
+    """Estimate the plug-in mutual information I(X; Y) between sources in bits.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        Realizations of first source
+    y : numpy.ndarray
+        Realizations of second source
+
+    Returns
+    -------
+    float
+        Mutual information between sources
+    """
+    x = np.asarray(x).ravel()
+    y = np.asarray(y).ravel()
+
+    if x.shape != y.shape:
+        raise ValueError("x and y must contain the same number of observations.")
+
+    if x.size == 0:
+        raise ValueError("x and y must not be empty.")
+
+    if not np.isin(x, [0, 1]).all() or not np.isin(y, [0, 1]).all():
+        raise ValueError("x and y must contain only 0 and 1.")
+
+    observations = np.column_stack((x, y))
+    outcomes, counts = np.unique(observations, axis=0, return_counts=True)
+    probabilities = counts / counts.sum()
+
+    # Outcomes can be tuples such as (0, 1).
+    distribution = Distribution(
+        [tuple(outcome) for outcome in outcomes],
+        probabilities,
+        rv_names=["X", "Y"],
+    )
+
+    return mutual_information(distribution, ["X"], ["Y"])
+
+
+def correlated_gates(
+    p: float, c: float, gate_name: str, N: int = 10000, eps: float = 0.1
+) -> tuple[dict, float, int, float]:
     """Simulate gate distribution for correlated inputs
 
 
@@ -87,8 +118,11 @@ def correlated_gates(p, c, gate_name, N=10000, eps=0.1):
         Actual correlation between inputs
     int
         Total reward (sum over target variable)
+    float
+        Mutual information between inputs
     """
     x, y = simulate_correlation(p, c, N)
+    z = np.zeros(len(x))
 
     if gate_name == "and":
         z = np.logical_and(x, y).astype(int)
@@ -96,13 +130,6 @@ def correlated_gates(p, c, gate_name, N=10000, eps=0.1):
         z = np.logical_or(x, y).astype(int)
     elif gate_name == "xor":
         z = np.logical_xor(x, y).astype(int)
-    elif gate_name == "noisy_xor":
-        z = np.logical_xor(x, y).astype(int)
-        mask_0 = np.where(np.logical_and(x == 0, y == 0))[0]
-        mask_1 = np.where(np.logical_and(x == 1, y == 1))[0]
-        n_to_flip = int((len(mask_0) + len(mask_1)) * eps / 2)
-        z[np.random.choice(mask_0, n_to_flip)] = 1
-        z[np.random.choice(mask_1, n_to_flip)] = 1
     elif gate_name == "unq1":
         z = x.copy()
     elif gate_name == "copy":
@@ -111,12 +138,9 @@ def correlated_gates(p, c, gate_name, N=10000, eps=0.1):
         z[np.logical_and(x == 0, y == 1)] = 1
         z[np.logical_and(x == 1, y == 0)] = 2
         z[np.logical_and(x == 1, y == 1)] = 3
-    elif gate_name == "prisoner":
-        z = np.logical_xor(x, y).astype(int)
-        z[np.logical_and(x == 0, y == 0)] = 2
-    elif gate_name == "stag":
-        z = np.logical_and(x, y).astype(int)
-        z[np.logical_and(x == 0, y == 0)] = 1
+    elif gate_name == "andnot":
+        z = np.zeros(len(x))
+        z[np.logical_and(x == 0, y == 1)] = 1
 
     triplets, counts = np.unique(np.vstack((x, y, z)).T, axis=0, return_counts=True)
     outcomes = [(t[0], t[1], t[2]) for t in triplets]
@@ -125,10 +149,14 @@ def correlated_gates(p, c, gate_name, N=10000, eps=0.1):
         dist[o] = float(p)
     assert np.isclose(sum(dist.values()), 1.0), f"Total prob. != 1 in {dist}"
     assert (np.array(list(dist.values())) >= 0).all(), f"Prob. smaller zero in {dist}"
-    return dist, np.corrcoef(x, y)[0, 1], sum(z)
+
+    mi_sources = estimate_source_mi(x, y)
+    return dist, np.corrcoef(x, y)[0, 1], sum(z), mi_sources
 
 
-def generate_empty_dist(n_s1_states=2, n_s2_states=2, n_target_states=2):
+def generate_empty_dist(
+    n_s1_states: int = 2, n_s2_states: int = 2, n_target_states: int = 2
+) -> dict:
     """Generate an empty dictionary with all possible joint realizations
 
     Parameters
@@ -154,7 +182,12 @@ def generate_empty_dist(n_s1_states=2, n_s2_states=2, n_target_states=2):
     return {r: 0.0 for r in realizations}
 
 
-def simulate_correlation(p, r, N=1000):
+def simulate_correlation(
+    p: float, r: float, N: int = 1000
+) -> tuple[
+    np.ndarray[tuple[Any, ...], np.dtype[Any]],
+    np.ndarray[tuple[Any, ...], np.dtype[Any]],
+]:
     """Simulate two correlated binary variables.
 
     Following https://stackoverflow.com/a/65668646
@@ -179,30 +212,30 @@ def simulate_correlation(p, r, N=1000):
     if r < 0.0:
         anticorrelation = True
     x = (np.random.rand(N) < p).astype(int)
-    assert np.isclose(
-        p, sum(x) / N, atol=0.05
-    ), f"p_x - expected: {p}, actual: {sum(x) / N}"
-    if r == 0 or p == 0:
+    assert np.isclose(p, sum(x) / N, atol=0.05), (
+        f"p_x - expected: {p}, actual: {sum(x) / N}"
+    )
+    if np.isclose(r, 0.0) or p == 0:
         y = (np.random.rand(N) < p).astype(int)
-        assert np.isclose(p, sum(y) / N, atol=0.05), f"p={p}, p_sim={sum(x) / N,}"
+        assert np.isclose(p, sum(y) / N, atol=0.05), f"p={p}, p_sim={(sum(x) / N,)}"
     else:
         x_bar = np.mean(x)
         xy_bar = np.abs(r) * x_bar + (1 - np.abs(r)) * x_bar**2
         toflip = sum(x == 1) - round(len(x) * xy_bar)
         y = x.copy()
-        y[np.random.choice(np.where(x == 0)[0], toflip)] = 1
-        y[np.random.choice(np.where(x == 1)[0], toflip)] = 0
+        y[np.random.choice(np.where(x == 0)[0], toflip, replace=False)] = 1
+        y[np.random.choice(np.where(x == 1)[0], toflip, replace=False)] = 0
         if anticorrelation:
             # Invert y to generate anti-correlated variables.
             y = 1 - y
-            assert np.isclose(
-                1 - p, sum(y) / N, atol=0.05
-            ), f"p_y - expected: {1-p}, actual: {sum(y) / N}"
+            assert np.isclose(1 - p, sum(y) / N, atol=0.05), (
+                f"p_y - expected: {1 - p}, actual: {sum(y) / N}"
+            )
 
         else:
-            assert np.isclose(
-                p, sum(y) / N, atol=0.05
-            ), f"p_y - expected: {p}, actual: {sum(y) / N}"
+            assert np.isclose(p, sum(y) / N, atol=0.05), (
+                f"p_y - expected: {p}, actual: {sum(y) / N}"
+            )
 
         # c = np.corrcoef(x, y)[0, 1]
         # assert np.isclose(c, r, atol=0.05), f"r={r} != c={c} (for p={p})"
@@ -210,65 +243,7 @@ def simulate_correlation(p, r, N=1000):
     return x, y
 
 
-def plot_pid_isolated(pid_full, r, title, filename):
-    """Plot PID for inputs correlations >= 0"""
-    fig, ax = plt.subplots(ncols=4, figsize=(4, 1.4))
-
-    r = np.array(r)
-    mask = r > -0.1
-    lw = 2
-    for k in pid_full:
-        pid_full[k] = np.array(pid_full[k])
-    measures = ["syn_norm", "shd_norm", "unq_s1_norm", "unq_s2_norm", "mi"]
-
-    # Plot relative estimates.
-    for c, m, ind in zip(COLORS, measures, np.arange(len(measures))):
-        ax[0].plot(r[mask], pid_full[m][mask], color=c, label=m, linewidth=lw)
-        for i, r_plot in enumerate(R_PLOT):
-            ax[i + 1].bar(ind, pid_full[m][np.isclose(r, r_plot)], color=c)
-            ax[i + 1].set(title="$\\rho=" + str(r_plot) + "$")
-    ax[0].plot(
-        r[mask],
-        (pid_full["shd"][mask] - pid_full["syn"][mask]),
-        "k--",
-        linewidth=lw,
-        label="shd-syn",
-    )
-    ax[0].set(
-        xlabel="$\\rho$",
-        xticks=np.arange(0.0, 1.1, 0.2),
-        ylabel="abs PID",
-        title=title,
-        ylim=[-0.7, 1.7],
-    )
-    for a in ax[1:]:
-        a.set(
-            xticks=np.arange(len(measures)),
-            xticklabels=[
-                cfg.labels_short[f"{m}_sx_cor"]
-                for m in ["syn_norm", "shd_norm", "unq1_norm", "unq2_norm", "mi"]
-            ],
-            ylim=[0, 1.05],
-        )
-        a.tick_params(axis="x", labelrotation=45)
-    plt.tight_layout()
-    plt.savefig(filename)
-    plt.close()
-
-
-def _print_dist(d, r, gate_name):
-    """Print joint distribution to console"""
-    x = PrettyTable(["A0", "A1", "T", "p"], float_format="3.4")
-    x.title = f"{gate_name} - r={r:.2f}"
-    # x.align["Estimator"] = "l"  # Left align
-    for realization, p in d.items():
-        if p == 0.0:
-            continue
-        x.add_row(list(realization) + [p])
-    print(x)
-
-
-def plot_input_correlation(p_0, savepath):
+def plot_input_correlation(p_0: float, savepath: Path) -> None:
     """Plot joint input distribution for some correlation coefficients"""
     fig, ax = plt.subplots(ncols=5, tight_layout=True, figsize=(8, 1.5))
     for r, a in zip([-1.0, -0.5, 0.0, 0.5, 1.0], ax):
@@ -287,7 +262,7 @@ def plot_input_correlation(p_0, savepath):
         fig.colorbar(im, ax=a, shrink=0.75)
 
         a.set(
-            title=f"r={r}",
+            title=rf"r={r}",
             xticks=[0.25, 0.75],
             yticks=[0.25, 0.75],
             xticklabels=[0, 1],
@@ -303,11 +278,14 @@ def plot_input_correlation(p_0, savepath):
     )
 
 
-def plot_sanity_checks(simulated_c, r, savepath):
+def plot_sanity_checks(
+    simulated_c: list[float], r: list[float], savepath: Path
+) -> None:
     """Plot simulated versus actual correlation as a sanity check"""
     fig = plt.figure(figsize=(3, 3))
-    plt.plot(r, simulated_c, color="k", label="actual")
-    plt.plot(r, r, color="grey", linestyle=":", label="expected")
+    ax = plt.gca()
+    sns.lineplot(x=r, y=simulated_c, color="k", label="actual", ax=ax)
+    sns.lineplot(x=r, y=r, color="grey", linestyle=":", label="expected", ax=ax)
     ax = plt.gca()
     ax.set(
         xticks=np.arange(r[0], r[-1] + 0.2, 0.2),
@@ -320,150 +298,174 @@ def plot_sanity_checks(simulated_c, r, savepath):
     fig.savefig(savepath.joinpath(f"sanity_check_sim_correlation.{FIGTYPE}"))
 
 
-def _plot_lines(pid_full, r, ax, title):
+def _pid_line_plots(
+    pid_full: dict,
+    r: list[float],
+    ax: matplotlib.axes.Axes,
+    title: str | None = None,
+    normalize: bool = False,
+) -> None:
     """Plot PID over full range of input correlations"""
-    lw = 1
-
-    for k in pid_full:
-        pid_full[k] = np.array(pid_full[k])
-
-    measures = ["syn", "shd", "unq_s1", "unq_s2", "mi"]
+    measures = PID_ATOMS + ["mi"]
     styles = ["-", "-", "--", ":", "-"]
 
     # Plot estimates.
+    if normalize:
+        m_suffix = "_norm"
+    else:
+        ylabel = "PID"
+        m_suffix = ""
+
     for c, s, m in zip(COLORS, styles, measures):
-        ax[0].plot(r, pid_full[m], color=c, label=m, linewidth=lw, linestyle=s)
-        ax[1].plot(
-            r, pid_full[f"{m}_norm"], color=c, label=m, linewidth=lw, linestyle=s
+        sns.lineplot(
+            x=r,
+            y=np.array(pid_full[f"{m}{m_suffix}"]),
+            color=c,
+            label=m,
+            linestyle=s,
+            linewidth=1.7,
+            legend=False,
+            ax=ax,
         )
-    ax[0].set(
+    ax.set(
         xlabel="$\\rho$",
-        xticks=[r[0], r[(len(r) - 1) // 2], r[-1]],
-        ylabel="PID",
+        # xticks=[r[0], r[(len(r) - 1) // 2], r[-1]],
+        xticks=[r[0], r[5], r[10], r[15], r[-1]],
         title=title,
-        # ylim=[-0.7, 1.7],
     )
-    ax[1].set(
-        xlabel="$\\rho$",
-        xticks=[r[0], r[(len(r) - 1) // 2], r[-1]],
-        ylabel="PID\I",
-        title=title,
-        # ylim=[-0.7, 1.7],
-    )
-
-    # Plot 'reward', i.e., no. ones in output.
-    ax[2].plot(r, pid_full["reward"], color="k", linewidth=lw)
-    if title == "AND":
-        ax[2].plot(r, pid_full["reward_or"], "k--", linewidth=lw)
-    ax[2].set(xlabel="$\\rho$", ylabel="$R$")
+    ax.axhline(0, zorder=0, color="lightgray", linestyle=":", linewidth=1)
 
 
-def main(p_0, estimator, seed):
-    """Run estimation"""
+def _append_results(
+    pid_full: dict, pid: dict, c: float, reward: int, mi_sources: float
+) -> dict:
+    for atom in PID_ATOMS:
+        pid_full[atom].append(pid[atom])
+        pid_full[f"{atom}_norm"].append(pid[f"{atom}_norm"])
+    pid_full["mi"].append(pid[cfg.col_mi])
+    pid_full["mi_norm"].append(pid[cfg.col_mi])  # add for more convenient plotting
+    pid_full["mi_sources"].append(mi_sources)
+    pid_full["corr"].append(c)
+    pid_full["reward"].append(reward)
+    return pid_full
+
+
+def main(path: str | Path, p_0: float, estimators: list[str], seed: int) -> None:
+    """Run and plot simulation of logic gates for simulated inputs
+
+    Parameters
+    ----------
+    path : str
+        Output path
+    p_0 : float
+        Probability of s_0=s_1=1
+    estimators : list[str]
+        List of PID estimators to use
+    seed : int
+        Random seed
+    """
     initialize_logger(log_name="logic_gate_pid_comparison")
-    savepath = Path("./lbf_logic_gate_pid_comparison/")
-    savepath_local = savepath.joinpath("local_sx_pid")
+    savepath = Path(path).joinpath(
+        "results_single_trial_analysis", "lbf_logic_gate_pid_comparison"
+    )
     savepath.mkdir(parents=True, exist_ok=True)
-    savepath_local.mkdir(parents=True, exist_ok=True)
     np.random.seed(seed)
 
     # Rdn and Unq1 as used in dit:
-    # gates = ["and", "xor", "unq1", "copy", "or", "noisy_xor", "stag", "prisoner"]
-    # gates = ["and", "xor", "unq1", "copy"]
-    gates = ["and", "xor", "unq1"]
-    pid_atoms = ["syn", "shd", "unq_s1", "unq_s2"]
-
-    dist_all = []
+    gates = ["and", "xor", "unq1", "copy"]
     corr_coefficients = [float(i) for i in np.arange(-1.0, 1.1, 0.1)]
+    dist_all = []
 
-    fig, ax = plt.subplots(nrows=3, ncols=len(gates), figsize=(1.2 * len(gates), 4))
+    n_rows = 2 * len(estimators) + 2
+    fig, ax = plt.subplots(
+        nrows=n_rows,
+        ncols=len(gates),
+        figsize=(
+            cfg.plot_elements["max_width_in"] * 0.9,
+            n_rows * cfg.plot_elements["row_height"],
+        ),
+    )
 
     for g, gate_name in enumerate(gates):
-        pid_full = {
-            k: []
-            for k in [
-                "mi",
-                "mi_norm",
-                "coinfo",
-                "coinfo_norm",
-                "p_joint",
-                "corr",
-                "reward",
-            ]
-        }
-        for atom in pid_atoms:
-            pid_full[atom] = []
-            pid_full[f"{atom}_norm"] = []
+        e = 0
+        for estimator in estimators:
+            pid_full: dict[str, list] = {
+                k: []
+                for k in [  # add for more convenient plotting
+                    "mi",
+                    "mi_norm",
+                    "mi_sources",
+                    "corr",
+                    "reward",
+                ]
+            }
+            for atom in PID_ATOMS:
+                pid_full[atom] = []
+                pid_full[f"{atom}_norm"] = []
 
-        for r in corr_coefficients:
-            dist, c, reward = correlated_gates(p_0, r, gate_name)
-            pid = estimate_pid_from_dist(estimator, dist)
-            for atom in pid_atoms:
-                pid_full[atom].append(pid[atom])
-                pid_full[f"{atom}_norm"].append(pid[f"{atom}_norm"])
-            pid_full["coinfo_norm"].append(pid[cfg.col_coinfo_norm])
-            pid_full["coinfo"].append(pid[cfg.col_coinfo])
-            if gate_name in ["xor", "prisoner"]:
-                pid_full["p_joint"].append(dist[(0, 1, 1)])
+            for corr in corr_coefficients:
+                dist, c, reward, mi_sources = correlated_gates(p_0, corr, gate_name)
+                dist_all.append(dist)
+                pid = estimate_pid_from_dist(estimator, dist)
+                pid_full = _append_results(pid_full, pid, c, reward, mi_sources)
+
+            # Add reward for OR gate
+            if "and" in gates:
+                pid_full["reward_or"] = []
+                for corr in corr_coefficients:
+                    _, _, reward, _ = correlated_gates(p_0, corr, gate_name="or")
+                    pid_full["reward_or"].append(reward)
+
+            if e == 0:
+                title = gate_name.upper()
             else:
-                pid_full["p_joint"].append(dist[(1, 1, 1)])
-            pid_full["mi"].append(pid[cfg.col_mi])
-            pid_full["mi_norm"].append(
-                pid[cfg.col_mi]
-            )  # add for more convenient plotting
-            pid_full["corr"].append(c)
-            pid_full["reward"].append(reward)
-            dist_all.append(dist)
+                None
+            _pid_line_plots(pid_full, r=corr_coefficients, ax=ax[e, g], title=title)
+            _pid_line_plots(
+                pid_full, r=corr_coefficients, ax=ax[e + 1, g], normalize=True
+            )
+            ax[e, g].set(ylabel=cfg.labels[estimator].replace("G", "T"))
+            ax[e + 1, g].set(ylabel=cfg.labels[f"norm_{estimator}"].replace("G", "T"))
+            e += 2
 
-            if np.any([np.isclose(r, r_plot) for r_plot in R_PLOT]):
-                _print_dist(dist, r, gate_name)
-                if estimator in ["sx", "sx_cor"]:
-                    logging.info("Saving local PID to %s", savepath)
-                    plot_local_pid_stats(
-                        [calculate_weighted_local_pid(pid["local"])],
-                        savepath_local,
-                        f"local_pid_{gate_name}_r_" + str(np.around(r, decimals=2)),
-                        weighted=True,
-                    )
-                    if gate_name == "and":
-                        dist, c, reward = correlated_gates(
-                            p_0, r, gate_name="or", N=10000, eps=0.1
-                        )
-                        pid = estimate_pid_from_dist(estimator, dist)
-                        plot_local_pid_stats(
-                            [calculate_weighted_local_pid(pid["local"])],
-                            savepath_local,
-                            "local_pid_or_r_" + str(np.around(r, decimals=2)),
-                            weighted=True,
-                        )
+        # Plot source correlation
+        ax[e, g].plot(corr_coefficients, pid_full["mi_sources"], color="k")
+        ax[e, g].set(xlabel=r"$\rho$")
 
-        if "and" in gates:
-            pid_full["reward_or"] = []
-            for r in corr_coefficients:
-                _, _, reward = correlated_gates(p_0, r, gate_name="or")
-                pid_full["reward_or"].append(reward)
+        # Plot 'reward', i.e., no. ones in output.
+        ax[e + 1, g].plot(corr_coefficients, pid_full["reward"], color="k")
+        if gate_name == "and":
+            ax[e + 1, g].plot(corr_coefficients, pid_full["reward_or"], "k--")
+            ax[e + 1, g].legend(["AND", "OR"])
+        ax[e + 1, g].set(xlabel=r"$\rho$")
+        if g == 0:
+            ax[e, g].set(ylabel=r"$I(A_1;A_2)$")
+            ax[e + 1, g].set(ylabel=r"$\sum T$")
 
-        _plot_lines(pid_full, r=corr_coefficients, ax=ax[:, g], title=gate_name.upper())
-        plot_pid_isolated(
-            pid_full,
-            r=corr_coefficients,
-            title=gate_name.upper(),
-            filename=savepath.joinpath(
-                f"corr_gate_comparison_p_{p_0}_{estimator}_{gate_name.upper()}.{FIGTYPE}"
-            ),
-        )
-
-    ax[0, 0].legend(loc="upper left", ncol=2)
-    ax[1, 0].legend(loc="lower left", ncol=2)
-    unify_axis_ylim(ax[:-1, :])
-    unify_axis_ylim(ax[-1, :])
-    ax[0, -1].set(ylim=[ax[0, 0].get_ylim()[0], ax[0, -1].get_ylim()[1] * 1.1])
+    unify_axis_ylim(ax[:-2, :-1])  # unify PID plots, except for copy gate
+    unify_axis_ylim(ax[-1, :-1])  # unify reward plots, except for copy gate
+    # ax[0, -1].set(ylim=[ax[0, 0].get_ylim()[0], ax[0, -1].get_ylim()[1] * 1.1])
     ax[-1, -1].set(ylim=[0, ax[-1, -1].get_ylim()[1] * 1.1])
-    fig.tight_layout()
-    fig.subplots_adjust(wspace=0.6, right=0.98)
+
+    # leg = ax[0, 0].legend(loc="lower left", bbox_to_anchor=(0, 1.02), ncol=4)
+    # leg.set_in_layout(False)
+    handles, labels = ax[0, 0].get_legend_handles_labels()
+
+    fig.legend(
+        handles,
+        [cfg.labels[l].replace("G", "T") for l in labels],
+        loc="upper left",
+        bbox_to_anchor=(ax[0, 0].get_position().x0, 0.99),
+        bbox_transform=fig.transFigure,
+        ncol=5,
+    )
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))  # keep top 10 % for the legend
+
     logging.info("Saving figures to %s", savepath)
     fig.savefig(
-        savepath.joinpath(f"corr_gate_comparison_p_{p_0}_{estimator}.{FIGTYPE}")
+        savepath.joinpath(
+            f"corr_gate_comparison_p_{p_0}_{'_'.join(estimators)}.{FIGTYPE}"
+        )
     )
     plot_input_correlation(p_0, savepath)
     plot_sanity_checks(pid_full["corr"], corr_coefficients, savepath)
@@ -476,16 +478,18 @@ if __name__ == "__main__":
             "Estimate and plot PID for logic gates/normal form games and correlated inputs"
         )
     )
+    parser.add_argument("--path", type=str, default="../", help="Output path")
     parser.add_argument(
-        "--estimator",
+        "--estimators",
         "-e",
+        nargs="+",
         type=str,
-        default="sx_cor",
-        help="PID estimator to use",
+        default=["sx_cor"],
+        help="PID estimator(s) to use",
     )
     parser.add_argument("--seed", "-s", type=int, default=1, help="Random seed")
     parser.add_argument(
         "--prob", "-p", type=float, default=0.5, help="Probability of taking action 1"
     )
     args = parser.parse_args()
-    main(args.prob, args.estimator, args.seed)
+    main(args.path, args.prob, args.estimators, args.seed)

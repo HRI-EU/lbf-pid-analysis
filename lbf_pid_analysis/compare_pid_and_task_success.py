@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 #
 # Contrast PID profiles and total task success to show that PID can
 # differentiate between different strategies that lead to similar results.
@@ -18,50 +17,63 @@
 # along with lbf_pid_analysis. If not, see <http://www.gnu.org/licenses/>.
 #
 #
+import argparse
 import logging
 from pathlib import Path
-import argparse
 
+import config as cfg
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
-
+from plot_measure_by_c import load_experiment_results
 from utils import initialize_logger
-from plot_measure_by_c import load_experiment_results, set_layout, unify_axis_ylim
-import config as cfg
 
-FILETYPE = "pdf" # "png"
+FILETYPE = "svg"  # "png"
+
 
 def main(
-    path, target_variable, estimator, measure_task_success, coop_plot, n_folders, render
-):
+    path: str,
+    target_variable: str,
+    estimator: str,
+    measure_task_success: str,
+    coop_plot: float,
+    n_folders: int,
+    render: bool,
+) -> None:
     initialize_logger(log_name=f"compare_measure_by_c_t_{target_variable}")
+
     loadpath = Path(path).joinpath("results_single_trial_analysis")
+
     results, _ = load_experiment_results(
-        loadpath, target_variable, max_folder=n_folders
+        loadpath,
+        target_variable,
+        max_folder=n_folders,
     )
+
     compare_pid_and_task_success(
         results,
         estimator,
         measure_task_success,
         coop_plot,
         filename=loadpath.joinpath(
-            f"comparison_pid_{estimator}_task_success_{measure_task_success}_c_{str(coop_plot).replace('.', '_')}.{FILETYPE}"
+            f"comparison_pid_{estimator}_"
+            f"task_success_{measure_task_success}_"
+            f"c_{str(coop_plot).replace('.', '_')}.{FILETYPE}"
         ),
         render=render,
     )
 
 
 def compare_pid_and_task_success(
-    results,
-    estimator,
-    measure_task_success,
-    coop_plot,
-    filename,
-    heuristics_used=None,
-    render=False,
-):
+    results: dict,
+    estimator: str,
+    measure_task_success: str,
+    coop_plot: float,
+    filename: Path,
+    heuristics_used: list[str] | None = None,
+    render: bool = False,
+) -> None:
     if heuristics_used is None:
         heuristics_used = [
             "MH_EGOISTIC",
@@ -69,136 +81,195 @@ def compare_pid_and_task_success(
             "MH_ADAPTIVE",
             "MH_COOPERATIVE",
         ]
-    set_layout()
+
     try:
         results[coop_plot]
     except KeyError as exc:
         raise KeyError(
-            "Unknown cooperation parameter {}, available parameters: {}".format(
-                coop_plot,
-                list(results.keys()),
-            )
+            f"Unknown cooperation parameter {coop_plot}, available parameters: {list(results.keys())}"
         ) from exc
+
     try:
-        results[0.0][f"syn_{estimator}"]
+        results[coop_plot][f"syn_{estimator}"]
     except KeyError as exc:
         raise KeyError(
-            "Unknown measure/estimator %s, available measures: %s",
-            estimator,
-            list(results[0.0].keys()),
+            f"Unknown measure/estimator {estimator}, available measures: {list(results[coop_plot].keys())}"
         ) from exc
 
-    fig, ax = plt.subplots(
-        ncols=len(heuristics_used) + 2,
-        # figsize=(
-        #     (len(heuristics_used) + 1)
-        #     * cfg.plot_elements["figsize"]["colwidth_in"]  # pylint: disable=no-member
-        #     * 1.2,
-        #     1.2
-        #     * cfg.plot_elements["figsize"][  # pylint: disable=no-member
-        #         "lineheight_in"
-        #     ],
-        # ),
-        figsize=(10, 2),
+    pid_atoms = [
+        f"{cfg.col_unq_s1}_{estimator}",
+        f"{cfg.col_shd}_{estimator}",
+        f"{cfg.col_syn}_{estimator}",
+        f"{cfg.col_unq_s2}_{estimator}",
+    ]
+
+    box_colors = [
+        cfg.colors["green_muted_lighter_1"],
+        cfg.colors["red_muted_lighter_1"],
+        cfg.colors["blue_muted_lighter_1"],
+        cfg.colors["green_muted_lighter_1"],
+    ]
+
+    # Use an outer grid to separate task success and total MI from the
+    # compact block of four PID panels.
+    fig = plt.figure(
+        figsize=(
+            cfg.plot_elements["max_width_in"],
+            cfg.plot_elements["row_height"] * 0.7,
+        )
     )
 
-    # Plot task success and MI
+    outer_grid = fig.add_gridspec(
+        nrows=1,
+        ncols=3,
+        width_ratios=[1.0, 1.0, 4.0],
+        wspace=0.45,
+    )
+
+    ax = [
+        fig.add_subplot(outer_grid[0, 0]),
+        fig.add_subplot(outer_grid[0, 1]),
+    ]
+
+    # The PID panels share one y-axis and are positioned close together.
+    pid_grid = outer_grid[0, 2].subgridspec(
+        nrows=1,
+        ncols=len(pid_atoms),
+        wspace=0.08,
+    )
+
+    pid_axes = []
+    for i in range(len(pid_atoms)):
+        if i == 0:
+            pid_axes.append(fig.add_subplot(pid_grid[0, i]))
+        else:
+            pid_axes.append(
+                fig.add_subplot(
+                    pid_grid[0, i],
+                    sharey=pid_axes[0],
+                )
+            )
+
+    ax.extend(pid_axes)
+
+    # Select the total mutual-information measure corresponding to the
+    # requested estimator.
     if estimator.split("_")[0] == "norm":
         mi_measure = f"mi_{estimator[5:]}"
     else:
         mi_measure = f"mi_{estimator}"
-    for measure, a in zip([measure_task_success, mi_measure], ax[:2]):
+
+    # Plot task success and total mutual information.
+    for measure, current_ax in zip(
+        [measure_task_success, mi_measure],
+        ax[:2],
+    ):
         try:
             df = pd.DataFrame(results[coop_plot][measure])[heuristics_used]
         except KeyError as exc:
             raise KeyError(
-                "Available measures: {}".format(list(results[coop_plot].keys())),
+                f"Unknown measure {measure}, available measures: {list(results[coop_plot].keys())}"
             ) from exc
+
+        df_long = df.melt(
+            var_name="heuristic",
+            value_name=measure,
+        )
         sns.boxplot(
             x="heuristic",
             y=measure,
-            data=df.melt(var_name="heuristic", value_name=measure),
-            ax=a,
+            data=df_long,
+            order=heuristics_used,
+            ax=current_ax,
             color=cfg.colors["gray"],
-            # hue="measure",
             width=0.6,
-            linewidth=cfg.plot_elements["box"]["linewidth"],
-            fliersize=cfg.plot_elements["marker_size"],
         )
-        a.set(xlabel="")
-        a.xaxis.set_ticks(np.arange(len(heuristics_used)))
-        a.set_xticklabels(
+
+        current_ax.set_xlabel("")
+        current_ax.set_ylabel(
+            cfg.labels["jmi"] if measure[:2] == "mi" else cfg.labels[measure]
+        )
+        current_ax.set_xticks(np.arange(len(heuristics_used)))
+        current_ax.set_xticklabels(
             [cfg.labels[h] for h in heuristics_used],
             rotation=45,
             ha="right",
             rotation_mode="anchor",
         )
-    pid_atoms = [f"{a}_{estimator}" for a in ["shd", "syn", "unq1", "unq2"]]
-    box_color = [
-        cfg.colors["red_muted_lighter_1"],
-        cfg.colors["blue_muted_lighter_1"],
-        cfg.colors["green_muted_lighter_1"],
-        cfg.colors["green_muted_lighter_1"],
-    ]
-    for i, heuristic in enumerate(heuristics_used):
 
-        df_pid = pd.DataFrame(
-            [results[coop_plot][a][heuristic] for a in pid_atoms], index=pid_atoms
-        ).T
-        sns.boxplot(
-            x="pid_atoms",
-            y=heuristic,
-            data=df_pid.melt(var_name="pid_atoms", value_name=heuristic),
-            ax=ax[i + 2],
-            palette=box_color,
-            # hue="measure",
-            width=0.6,
-            linewidth=cfg.plot_elements["box"]["linewidth"],
-            fliersize=cfg.plot_elements["marker_size"],
+    # Plot one PID atom per panel and compare all policies within the panel.
+    for i, (pid_atom, box_color) in enumerate(zip(pid_atoms, box_colors)):
+        try:
+            df = pd.DataFrame(results[coop_plot][pid_atom])[heuristics_used]
+        except KeyError as exc:
+            raise KeyError(
+                f"Unknown PID atom {pid_atom}, available measures: {list(results[coop_plot].keys())}"
+            ) from exc
+
+        df_long = df.melt(
+            var_name="heuristic",
+            value_name=pid_atom,
         )
-        ax[i + 2].set(ylabel=cfg.labels[heuristic], xlabel="")
 
-    atom_labels = [cfg.labels_short[a] for a in pid_atoms]
-    for a in ax[2:]:
-        a.xaxis.set_ticks(
-            np.arange(len(atom_labels))
-        )  # to avoid FixedFormatter warning
-        a.set_xticklabels(
-            atom_labels,
+        pid_ax = ax[i + 2]
+
+        print(pid_atom)
+        sns.boxplot(
+            x="heuristic",
+            y=pid_atom,
+            data=df_long,
+            order=heuristics_used,
+            ax=pid_ax,
+            color=box_color,
+            width=0.6,
+        )
+
+        pid_ax.set_xlabel("")
+        pid_ax.set_ylabel(cfg.labels[estimator] if i == 0 else "")
+        pid_ax.set_xticks(np.arange(len(heuristics_used)))
+        pid_ax.set_xticklabels(
+            [cfg.labels[h] for h in heuristics_used],
             rotation=45,
             ha="right",
             rotation_mode="anchor",
         )
-    unify_axis_ylim(ax[2:])
 
-    fig.suptitle(f"c={coop_plot}")
-    fig.subplots_adjust(left=0.07, bottom=0.27, wspace=0.8, right=0.98)
+    # Show y-axis ticks and labels only on the first PID panel.
+    for pid_ax in ax[3:]:
+        pid_ax.tick_params(
+            axis="y",
+            which="both",
+            left=False,
+            labelleft=False,
+        )
+
+    plt.tight_layout()
+
     logging.info("Saving figure to %s", filename)
     plt.savefig(filename)
+
     if render:
         plt.show()
     else:
         plt.close()
 
 
-def _get_pid_atoms(estimator, atoms=None):
-    if atoms is None:
-        atoms = ["shd", "syn", "unq1", "unq2", "mi"]
-    estimator_atoms = [f"{a}_{estimator}" for a in atoms[:-1]]
-    if estimator.split("_")[0] == "norm":
-        return estimator_atoms + [f"{atoms[-1]}_{estimator[5:]}"]
-    return estimator_atoms + [f"{atoms[-1]}_{estimator}"]
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Plot correlation between estimated synergy and task success measured by collected food items/value."
+        description=(
+            "Contrast estimated PID profiles and task success for "
+            "different agent policies."
+        )
     )
-    parser.add_argument("--render", action="store_true")
+
+    parser.add_argument(
+        "--render",
+        action="store_true",
+    )
     parser.add_argument(
         "-p",
         "--path",
-        default="../../lbf_experiments/shared_goal_dist_0_0_v13",
+        default="../../lbf_experiment_results",
         type=str,
         help="Path to experimental results",
     )
@@ -207,35 +278,36 @@ if __name__ == "__main__":
         "--target",
         default="any_food",
         type=str,
-        help=("Variable to use as target in PID estimation"),
+        help="Variable to use as target in PID estimation",
     )
     parser.add_argument(
         "-e",
         "--estimator",
         type=str,
-        default="norm_sx_cor",  # syn_norm_sx, syn_norm_sx_cor, syn_norm_iccs
-        help=("Estimator results to plot"),
+        default="norm_sx_cor",
+        help="Estimator results to plot",
     )
     parser.add_argument(
         "-s",
         "--success",
         default="total_food_value_collected",
         type=str,
-        help=("Variable to use as measure of task success"),
+        help="Variable to use as measure of task success",
     )
     parser.add_argument(
         "-c",
-        default="0.8",
+        default=0.8,
         type=float,
-        help=("Cooperation parameter for which to compare"),
+        help="Cooperation parameter for which to compare",
     )
     parser.add_argument(
         "-f",
         "--folders",
         default=25,
         type=int,
-        help=("Number of results folders to parse"),
+        help="Number of results folders to parse",
     )
+
     args = parser.parse_args()
 
     main(
